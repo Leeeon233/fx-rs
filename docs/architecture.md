@@ -2,7 +2,8 @@
 
 The rewrite uses dependency inversion: domain semantics live in small inner
 crates, while disk, network, process, terminal, and ACP details point inward
-through object-safe traits. ACP over stdio is the sole public interface.
+through object-safe traits. ACP over stdio is the sole agent protocol; both the
+TUI and external editor clients use it.
 
 ## Crate boundaries
 
@@ -22,6 +23,10 @@ through object-safe traits. ACP over stdio is the sole public interface.
 - `fx-acp-host` is the composition root built on the official ACP SDK. It
   advertises provider auth/models, owns sessions, and constructs a provider
   gateway lazily for every main or child run.
+- `fx-tui` is an ACP-native frontend built on Ratatui and Crossterm. Its event
+  loop owns only terminal and protocol I/O; state transitions and rendering
+  remain independent. Scrollback is bounded, entry heights are cached, and
+  only visible cards are rendered.
 - `fx-config` loads repository-safe project settings and profile/workspace
   precedence. Credentials are not selected by configuration.
 - `fx-store` persists schema-v3 sessions as a committed event-log prefix with a
@@ -32,10 +37,9 @@ through object-safe traits. ACP over stdio is the sole public interface.
 - `fx-terminal-host` is a private detached companion used only to retain PTYs
   and monitors across ACP client reconstruction. Public invocation is rejected.
 - the `fxrs` package in `crates/fx-cli` is a tiny cold-path dispatcher; it
-  exposes only `fxrs acp`, help, and version.
+  launches the isolated `fx-tui` or `fx-acp` companion and owns help/version.
 
-There is intentionally no TUI, standalone SDK crate, N-API, or WASM entry
-point.
+There is intentionally no standalone SDK crate, N-API, or WASM entry point.
 
 ## Provider and authentication lifecycle
 
@@ -89,15 +93,17 @@ a failed or cancelled generation retains any visible assistant prefix.
 
 ## Cold-start policy
 
-The `fxrs` dispatcher links no TLS, provider, session, terminal, or protocol
-runtime. Heavy capability families remain separate crates. The release profile
+The `fxrs` dispatcher links no TLS, provider, session, terminal, protocol, or
+TUI runtime. `fx-tui` and `fx-acp` are separate companion binaries, so
+help/version and command dispatch retain their minimal cold path. Heavy
+capability families remain separate crates. The release profile
 uses `opt-level = "z"`, fat LTO, one codegen unit, stripped symbols, and aborting
 panics. The Codex adapter uses pooled `ureq`/Rustls and `stream-rs` SSE framing
 instead of a full provider SDK or WebSocket stack.
 
 On the current Apple Silicon macOS host, release binaries measure 320,832 bytes
-for `fxrs`, 5,388,336 bytes for `fx-acp`, and 957,648 bytes for the private
-terminal host. The first execution after linking measured 0.85 seconds for the
+for `fxrs`, 1,454,544 bytes for `fx-tui`, 5,371,760 bytes for `fx-acp`, and
+957,648 bytes for the private terminal host. The first execution after linking measured 0.85 seconds for the
 dispatcher and 0.43 seconds for ACP (including macOS's initial image
 loading/check); the next four fresh processes in each series measured 0.00
 seconds with `/usr/bin/time -p`.

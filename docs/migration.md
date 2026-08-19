@@ -22,7 +22,7 @@ ownership inventory is in [source-inventory.md](source-inventory.md).
 | durable subagents | `fx-subagent` | Implemented |
 | MCP | `fx-mcp` | stdio and Streamable HTTP implemented |
 | ACP | `fx-acp-host` | ACP v1 stdio vertical slice implemented |
-| CLI/TUI/input editor | none | Out of scope |
+| TUI/input editor | `fx-tui` | ACP-native full-screen interface implemented |
 | WASM/N-API/standalone SDK | none | Out of scope |
 
 ## Provider status
@@ -62,8 +62,8 @@ Codex provider.
 
 ## Verification
 
-The workspace has 172 passing Rust unit/integration tests plus doc tests. The
-ACP integration suite uses the official client SDK and a loopback server that
+The workspace test suite includes unit, integration, protocol, terminal, and
+doc tests. The ACP integration suite uses the official client SDK and a loopback server that
 speaks the Codex Responses event protocol. It covers initialize/auth
 advertisement, owned logout, model persistence, permissions, automatic review,
 tools, skills, search, subagents, cancellation, disconnect cleanup, and
@@ -83,3 +83,8 @@ The implementation deliberately reuses `agent-client-protocol`, `rmcp`,
 `ureq`/Rustls, `stream-rs`, `atomic-write-file`, `fs4`, `portable-pty`, `vt100`,
 `process-wrap`, `ignore`, `globset`, and other optimized ecosystem crates at
 their appropriate host boundaries.
+
+The TUI reuses `ratatui`, `crossterm`, `ratatui-textarea`, and `tui-markdown`.
+Its tests cover stream coalescing, tool-card updates, permission selection,
+queued prompts, responsive rendering, cached-scrollback performance, and a
+real-PTY startup/session/quit exchange with `fx-acp`.

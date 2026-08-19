@@ -66,8 +66,9 @@ Built-in tool families are:
 - dynamic MCP tools, prompts, resources, and completion.
 
 This inventory describes the source, not the Rust product boundary. The rewrite
-supports ACP only and ports other behavior only when ACP exposes or depends on
-it.
+uses ACP as its sole agent protocol and ports other behavior only when ACP
+exposes or depends on it. The Rust TUI is an ACP client rather than a second
+composition root.
 
 ## Cross-cutting invariants found in source and tests
 
@@ -101,7 +102,8 @@ it.
 3. Add streaming gateway transport and the minimal noninteractive agent loop.
 4. Add event-log sessions and recovery before interactive resume or subagents.
 5. Add MCP and ACP as protocol adapters over the established core.
-6. Port the terminal and extension capabilities reachable through ACP; omit the
-   TUI, slash-command editor, WASM, N-API, and standalone SDK surfaces.
-7. Qualify ACP interoperability, semantic E2E parity, cold start, binary size,
+6. Port the terminal and extension capabilities reachable through ACP; omit
+   WASM, N-API, and standalone SDK surfaces.
+7. Add the TUI as an isolated ACP client after the protocol semantics stabilize.
+8. Qualify ACP interoperability, semantic E2E parity, cold start, binary size,
    and failure recovery.

@@ -6,6 +6,15 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- High-performance `fxrs-tui` crate and `fx-tui` companion with streaming
+  Markdown, foldable tool/thought cards, permission interactions, prompt
+  queueing, model/mode selectors, durable-session resume, mouse scrolling, and
+  responsive true-color/monochrome rendering.
+- `fxrs` now opens the TUI by default; `fxrs tui` is the explicit form and
+  `fxrs acp` remains the ACP stdio entry point.
+
 ## [0.0.3] - 2026-08-19
 
 ### Added

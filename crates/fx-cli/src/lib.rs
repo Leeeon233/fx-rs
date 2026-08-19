@@ -1,4 +1,4 @@
-//! Tiny public dispatcher. Fx exposes one product interface: ACP over stdio.
+//! Tiny public dispatcher for the interactive TUI and ACP server.
 
 use std::ffi::OsString;
 use std::io::{self, Write};
@@ -11,7 +11,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum CliError {
     #[error("usage: fxrs --version")]
     VersionUsage,
-    #[error("fxrs: unknown subcommand: {0}; the only protocol command is `fxrs acp`")]
+    #[error("fxrs: unknown subcommand: {0}; use `fxrs` for the TUI or `fxrs acp` for ACP stdio")]
     UnknownCommand(String),
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -54,7 +54,7 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliError> 
 
 pub fn render_help() -> String {
     format!(
-        "fxrs v{VERSION}\nNative coding agent speaking ACP over stdio.\n\nUsage:\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fxrs version\n"
+        "fxrs v{VERSION}\nFast, ACP-native coding agent for the terminal.\n\nUsage:\n  fxrs [TUI OPTIONS]\n  fxrs tui [TUI OPTIONS]\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  tui       Start the interactive terminal interface (default)\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fxrs version\n"
     )
 }
 
@@ -75,9 +75,10 @@ mod tests {
     }
 
     #[test]
-    fn help_exposes_only_the_acp_product_interface() {
+    fn help_exposes_tui_and_acp_interfaces() {
         let help = render_help();
         assert!(help.contains("fxrs acp"));
+        assert!(help.contains("fxrs tui"));
         for removed in ["fxrs ask", "background", "login", "status", "permissions"] {
             assert!(!help.contains(removed));
         }
@@ -86,6 +87,6 @@ mod tests {
     #[test]
     fn rejects_legacy_commands() {
         let error = run([OsString::from("ask")], &mut Vec::new()).unwrap_err();
-        assert!(error.to_string().contains("only protocol command"));
+        assert!(error.to_string().contains("use `fxrs` for the TUI"));
     }
 }

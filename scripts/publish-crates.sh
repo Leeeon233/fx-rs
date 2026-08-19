@@ -26,6 +26,7 @@ fxrs_packages=(
     fxrs-provider-codex
     fxrs-terminal-host
     fxrs-acp-host
+    fxrs-tui
     fxrs
 )
 

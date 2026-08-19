@@ -23,8 +23,8 @@ cargo test --workspace --locked
 ```
 
 Keep provider-specific authentication, catalogs, and transports behind the
-traits in `fx-provider` and `fx-core`. ACP is the only public product interface;
-new standalone frontends are out of scope.
+traits in `fx-provider` and `fx-core`. Frontends must use ACP rather than
+reaching into provider or runtime implementations directly.
 
 Do not commit credentials, OAuth tokens, private prompts, generated release
 archives, or files from `~/.fx`.

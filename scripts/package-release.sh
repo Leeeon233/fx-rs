@@ -37,7 +37,7 @@ trap 'rm -rf -- "$fxrs_stage"' EXIT
 fxrs_package="$fxrs_stage/$fxrs_name"
 mkdir -p "$fxrs_package" "$fxrs_dist"
 
-for fxrs_binary in fxrs fx-acp fx-terminal-host; do
+for fxrs_binary in fxrs fx-tui fx-acp fx-terminal-host; do
     fxrs_source="$fxrs_repo_root/target/$fxrs_target/release/$fxrs_binary"
     if [[ ! -x "$fxrs_source" ]]; then
         echo "package-release: missing executable: $fxrs_source" >&2
@@ -48,6 +48,7 @@ done
 
 install -m 644 README.md LICENSE CHANGELOG.md "$fxrs_package/"
 "$fxrs_package/fxrs" --version >/dev/null
+"$fxrs_package/fxrs" tui --help >/dev/null
 "$fxrs_package/fxrs" acp --help >/dev/null
 
 COPYFILE_DISABLE=1 tar -C "$fxrs_stage" -czf "$fxrs_archive" "$fxrs_name"

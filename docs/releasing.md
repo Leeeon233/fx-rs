@@ -2,8 +2,8 @@
 
 fxrs is distributed through crates.io and GitHub Releases. Installing the
 top-level `fxrs` crate or extracting an archive provides the public `fxrs`
-dispatcher and its private `fx-acp` and `fx-terminal-host` companions. All
-three executables must remain in the same directory.
+dispatcher and `fx-tui`, plus the private `fx-acp` and `fx-terminal-host`
+companions. All four executables must remain in the same directory.
 
 The release workflow publishes native archives for:
 
@@ -73,10 +73,12 @@ On macOS:
 shasum -a 256 --check fxrs-v0.0.3-aarch64-apple-darwin.tar.gz.sha256
 ```
 
-After extracting, keep `fxrs`, `fx-acp`, and `fx-terminal-host` together and
+After extracting, keep `fxrs`, `fx-tui`, `fx-acp`, and `fx-terminal-host`
+together and
 run:
 
 ```sh
 ./fxrs --version
+./fxrs tui --help
 ./fxrs acp --help
 ```

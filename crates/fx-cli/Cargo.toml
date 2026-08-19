@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 description.workspace = true
 readme.workspace = true
-keywords = ["acp", "agent", "coding-agent", "codex", "openai"]
+keywords = ["acp", "agent", "coding-agent", "codex", "tui"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 fx-acp-host.workspace = true
 fx-terminal-host.workspace = true
+fx-tui.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
@@ -27,5 +28,6 @@ fx-core.workspace = true
 fx-process.workspace = true
 fx-provider.workspace = true
 fx-store.workspace = true
+portable-pty.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
