@@ -1,0 +1,17 @@
+[package]
+name = "fx-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fx-core = { path = "../fx-core" }
+serde.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+

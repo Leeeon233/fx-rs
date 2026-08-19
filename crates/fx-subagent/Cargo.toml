@@ -1,0 +1,20 @@
+[package]
+name = "fx-subagent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atomic-write-file.workspace = true
+fs4.workspace = true
+fx-core = { path = "../fx-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

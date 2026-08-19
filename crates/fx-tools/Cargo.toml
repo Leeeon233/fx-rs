@@ -1,0 +1,19 @@
+[package]
+name = "fx-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atomic-write-file.workspace = true
+fx-core = { path = "../fx-core" }
+fx-workspace = { path = "../fx-workspace" }
+globset = "0.4.16"
+ignore = "0.4.23"
+jiff.workspace = true
+memchr = "2.7.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

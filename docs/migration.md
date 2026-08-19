@@ -1,0 +1,85 @@
+# Migration map
+
+Source baseline: `~/code/fx` at `fc124be`, version `0.0.3`. The complete source
+ownership inventory is in [source-inventory.md](source-inventory.md).
+
+| Source ownership | Rust destination | State |
+| --- | --- | --- |
+| shared agent/message semantics | `fx-core` | Implemented |
+| provider ports and catalogs | `fx-provider` + `fx-core::Gateway` | Multi-provider registry implemented |
+| auth and secret storage | `fx-auth` + provider adapters | Generic store and Codex OAuth implemented |
+| Codex Responses provider | `fx-provider-codex` + `fx-gateway` | Implemented |
+| permission policy and automatic review | `fx-core` + ACP host | Implemented |
+| workspace path authority | `fx-workspace` | Implemented |
+| layered configuration | `fx-config` | Implemented for ACP-owned fields |
+| schema-v3 sessions and recovery | `fx-store` | Implemented |
+| filesystem observation/mutation | `fx-tools` | Implemented, including semantic search |
+| terminal execution and sessions | `fx-process` + private terminal host | Implemented |
+| durable terminal monitors | `fx-process` + private terminal host | Implemented |
+| web search/fetch | `fx-web` + provider capability | Implemented |
+| skills and installation | `fx-skills` | Implemented |
+| memory and large tool results | `fx-store` | Implemented |
+| durable subagents | `fx-subagent` | Implemented |
+| MCP | `fx-mcp` | stdio and Streamable HTTP implemented |
+| ACP | `fx-acp-host` | ACP v1 stdio vertical slice implemented |
+| CLI/TUI/input editor | none | Out of scope |
+| WASM/N-API/standalone SDK | none | Out of scope |
+
+## Provider status
+
+Codex is the only concrete provider today. The shared abstraction already
+supports simultaneous providers, provider-local model catalogs and defaults,
+provider-scoped auth methods, locked refresh, independent gateway construction,
+and per-model capabilities. Direct OpenAI API-key, Anthropic, and other
+providers are future adapters rather than missing changes to core architecture.
+
+Codex supports:
+
+- ACP browser authentication with PKCE and a loopback callback;
+- refresh-token rotation while holding the provider credential lock;
+- read-only reuse of a valid Codex CLI ChatGPT session;
+- the Codex Responses SSE endpoint, function tools, reasoning, usage,
+  cancellation at the host boundary, and native web-search citations;
+- seven catalog models with an explicit default.
+
+Device-code login and direct OpenAI API-key billing are not implemented in the
+Codex provider.
+
+## Preserved invariants
+
+- Configuration precedence is environment, workspace profile, global profile,
+  project defaults, then built-ins.
+- Project configuration cannot select credentials, model, or permission mode.
+- Configured denies precede session grants.
+- Provider-executed calls cannot be executed locally a second time.
+- Requests are retried only when delivery is known not to have occurred.
+- Session and credential replacement is atomic and bounded.
+- Refresh failure preserves the owned credential and does not silently switch
+  auth sources.
+- File approval reviews exactly what a later one-shot commit will apply.
+- Main and child model selection uses the same provider registry.
+- ACP initialize performs no credential or network access.
+
+## Verification
+
+The workspace has 172 passing Rust unit/integration tests plus doc tests. The
+ACP integration suite uses the official client SDK and a loopback server that
+speaks the Codex Responses event protocol. It covers initialize/auth
+advertisement, owned logout, model persistence, permissions, automatic review,
+tools, skills, search, subagents, cancellation, disconnect cleanup, and
+failure-safe history.
+
+Focused provider tests cover multi-provider registration, credential isolation
+and permissions, corruption rejection, OAuth refresh form/rotation, callback
+state validation, ambient Codex compatibility, request projection, SSE parsing,
+function identity, usage, error classification, and search citations.
+
+A release-binary live smoke used the existing read-only Codex CLI session and
+`codex/gpt-5.6-sol` to complete ACP initialize, session creation, and one real
+Codex prompt. It returned `end_turn` with the requested `FX_CODEX_OK` text and
+exited normally.
+
+The implementation deliberately reuses `agent-client-protocol`, `rmcp`,
+`ureq`/Rustls, `stream-rs`, `atomic-write-file`, `fs4`, `portable-pty`, `vt100`,
+`process-wrap`, `ignore`, `globset`, and other optimized ecosystem crates at
+their appropriate host boundaries.

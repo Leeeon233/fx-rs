@@ -1,0 +1,14 @@
+[package]
+name = "fx-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fx"
+path = "src/main.rs"
+
+[dependencies]
+thiserror.workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "fx-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atomic-write-file.workspace = true
+fx-core = { path = "../fx-core" }
+fx-workspace = { path = "../fx-workspace" }
+fs4.workspace = true
+hex.workspace = true
+http.workspace = true
+portable-pty.workspace = true
+process-wrap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+vt100.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
