@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "agent-client-protocol",
  "base64 0.23.1",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-acp-host"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "agent-client-protocol",
  "fxrs-auth",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-auth"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "atomic-write-file",
  "fs4",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-config"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "serde",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-context"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "libc",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "pollster",
  "serde",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-gateway"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "serde_json",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-mcp"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "http",
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-process"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "atomic-write-file",
  "fs4",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-provider"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "pollster",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-provider-codex"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "base64 0.23.1",
  "fxrs-auth",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-skills"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fs4",
  "fxrs-core",
@@ -1120,7 +1120,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-store"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "atomic-write-file",
  "base64 0.23.1",
@@ -1137,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-subagent"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "atomic-write-file",
  "fs4",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-terminal-host"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "fxrs-process",
@@ -1161,7 +1161,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-tools"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "atomic-write-file",
  "fxrs-core",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-tui"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "agent-client-protocol",
  "crossterm",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-web"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
  "html2text",
@@ -1208,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "fxrs-workspace"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "fxrs-core",
 ]
