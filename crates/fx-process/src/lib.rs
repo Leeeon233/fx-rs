@@ -648,6 +648,7 @@ fn output_envelopes(stdout: &str, stderr: &str) -> String {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[cfg(target_os = "macos")]
     use std::fs;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};

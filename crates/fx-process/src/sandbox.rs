@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use std::path::Path;
 
 use fx_core::{SandboxMode, ToolContext, ToolError};
