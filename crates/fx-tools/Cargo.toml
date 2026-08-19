@@ -1,15 +1,17 @@
 [package]
-name = "fx-tools"
+name = "fxrs-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Filesystem and search tool implementations for fxrs"
+readme.workspace = true
 
 [dependencies]
 atomic-write-file.workspace = true
-fx-core = { path = "../fx-core" }
-fx-workspace = { path = "../fx-workspace" }
+fx-core.workspace = true
+fx-workspace.workspace = true
 globset = "0.4.16"
 ignore = "0.4.23"
 jiff.workspace = true

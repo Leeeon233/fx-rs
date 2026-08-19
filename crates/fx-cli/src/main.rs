@@ -9,7 +9,7 @@ fn main() -> ExitCode {
         return run_acp(&args[1..]);
     }
     let mut stdout = io::stdout().lock();
-    match fx_cli::run(args, &mut stdout) {
+    match fxrs::run(args, &mut stdout) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -42,7 +42,7 @@ fn run_acp(args: &[OsString]) -> ExitCode {
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(1, 255) as u8),
         Err(error) => {
             eprintln!(
-                "fx: could not start ACP companion at {}: {error}",
+                "fxrs: could not start ACP companion at {}: {error}",
                 executable.display()
             );
             ExitCode::FAILURE

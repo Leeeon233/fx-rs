@@ -1,13 +1,15 @@
 [package]
-name = "fx-context"
+name = "fxrs-context"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Context budgeting and compaction primitives for fxrs"
+readme.workspace = true
 
 [dependencies]
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(unix)'.dependencies]

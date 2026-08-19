@@ -238,7 +238,7 @@ impl CodexProvider {
             .append_pair("state", &state)
             .append_pair("id_token_add_organizations", "true")
             .append_pair("codex_cli_simplified_flow", "true")
-            .append_pair("originator", "fx");
+            .append_pair("originator", "fxrs");
         if self.config.open_browser {
             open_browser(auth_url.as_str())?;
         }
@@ -384,7 +384,7 @@ impl Provider for CodexProvider {
             CodexGatewayConfig::new(model_id, auth.access_token.as_str(), auth.account_id);
         config.endpoint = self.config.responses_endpoint.clone();
         config.session_id = session_id.map(str::to_owned);
-        config.originator = "fx".into();
+        config.originator = "fxrs".into();
         Ok(Arc::new(SafeRetryGateway::new(Arc::new(
             CodexGateway::new(config),
         ))))

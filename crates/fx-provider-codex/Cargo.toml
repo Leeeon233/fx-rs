@@ -1,16 +1,18 @@
 [package]
-name = "fx-provider-codex"
+name = "fxrs-provider-codex"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Codex provider, OAuth, and Responses API adapter for fxrs"
+readme.workspace = true
 
 [dependencies]
 base64.workspace = true
-fx-core = { path = "../fx-core" }
-fx-gateway = { path = "../fx-gateway" }
-fx-provider = { path = "../fx-provider" }
+fx-core.workspace = true
+fx-gateway.workspace = true
+fx-provider.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,6 +23,5 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-fx-auth = { path = "../fx-auth" }
+fx-auth.workspace = true
 pollster.workspace = true
-

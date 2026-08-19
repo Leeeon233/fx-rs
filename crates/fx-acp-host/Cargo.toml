@@ -1,35 +1,31 @@
 [package]
-name = "fx-acp-host"
+name = "fxrs-acp-host"
+autobins = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-
-[[bin]]
-name = "fx-acp"
-path = "src/main.rs"
+description = "ACP stdio host and composition root for fxrs"
+readme.workspace = true
 
 [dependencies]
 agent-client-protocol.workspace = true
-fx-auth = { path = "../fx-auth" }
-fx-config = { path = "../fx-config" }
-fx-context = { path = "../fx-context" }
-fx-core = { path = "../fx-core" }
-fx-gateway = { path = "../fx-gateway" }
-fx-mcp = { path = "../fx-mcp" }
-fx-process = { path = "../fx-process" }
-fx-provider = { path = "../fx-provider" }
-fx-provider-codex = { path = "../fx-provider-codex" }
-fx-skills = { path = "../fx-skills" }
-fx-store = { path = "../fx-store" }
-fx-subagent = { path = "../fx-subagent" }
-fx-tools = { path = "../fx-tools" }
-fx-web = { path = "../fx-web" }
+fx-auth.workspace = true
+fx-config.workspace = true
+fx-context.workspace = true
+fx-core.workspace = true
+fx-gateway.workspace = true
+fx-mcp.workspace = true
+fx-process.workspace = true
+fx-provider.workspace = true
+fx-provider-codex.workspace = true
+fx-skills.workspace = true
+fx-store.workspace = true
+fx-subagent.workspace = true
+fx-tools.workspace = true
+fx-web.workspace = true
 jiff.workspace = true
 pollster.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-
-[dev-dependencies]
-base64.workspace = true

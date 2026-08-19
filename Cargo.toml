@@ -26,13 +26,32 @@ version = "0.0.3"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/vercel-labs/fx"
+repository = "https://github.com/Leeeon233/fx-rs"
+description = "A compact, provider-extensible coding agent speaking ACP over stdio"
+readme = "README.md"
 
 [workspace.dependencies]
 agent-client-protocol = "2.0.0"
 atomic-write-file = "0.3.1"
 base64 = "0.23.0"
 fs4 = "1.1.0"
+fx-acp-host = { package = "fxrs-acp-host", version = "0.0.3", path = "crates/fx-acp-host" }
+fx-auth = { package = "fxrs-auth", version = "0.0.3", path = "crates/fx-auth" }
+fx-config = { package = "fxrs-config", version = "0.0.3", path = "crates/fx-config" }
+fx-context = { package = "fxrs-context", version = "0.0.3", path = "crates/fx-context" }
+fx-core = { package = "fxrs-core", version = "0.0.3", path = "crates/fx-core" }
+fx-gateway = { package = "fxrs-gateway", version = "0.0.3", path = "crates/fx-gateway" }
+fx-mcp = { package = "fxrs-mcp", version = "0.0.3", path = "crates/fx-mcp" }
+fx-process = { package = "fxrs-process", version = "0.0.3", path = "crates/fx-process" }
+fx-provider = { package = "fxrs-provider", version = "0.0.3", path = "crates/fx-provider" }
+fx-provider-codex = { package = "fxrs-provider-codex", version = "0.0.3", path = "crates/fx-provider-codex" }
+fx-skills = { package = "fxrs-skills", version = "0.0.3", path = "crates/fx-skills" }
+fx-store = { package = "fxrs-store", version = "0.0.3", path = "crates/fx-store" }
+fx-subagent = { package = "fxrs-subagent", version = "0.0.3", path = "crates/fx-subagent" }
+fx-terminal-host = { package = "fxrs-terminal-host", version = "0.0.3", path = "crates/fx-terminal-host" }
+fx-tools = { package = "fxrs-tools", version = "0.0.3", path = "crates/fx-tools" }
+fx-web = { package = "fxrs-web", version = "0.0.3", path = "crates/fx-web" }
+fx-workspace = { package = "fxrs-workspace", version = "0.0.3", path = "crates/fx-workspace" }
 hex = "0.4.3"
 html2text = { version = "0.17.1", default-features = false }
 http = "1.5.0"

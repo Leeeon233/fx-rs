@@ -1,13 +1,15 @@
 [package]
-name = "fx-mcp"
+name = "fxrs-mcp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Model Context Protocol client integration for fxrs"
+readme.workspace = true
 
 [dependencies]
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 http.workspace = true
 rmcp.workspace = true
 rustls.workspace = true

@@ -1,13 +1,15 @@
 [package]
-name = "fx-web"
+name = "fxrs-web"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Web search and fetch services for fxrs"
+readme.workspace = true
 
 [dependencies]
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 html2text.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

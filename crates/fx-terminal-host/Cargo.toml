@@ -1,12 +1,15 @@
 [package]
-name = "fx-terminal-host"
+name = "fxrs-terminal-host"
+autobins = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Private detached terminal companion library for fxrs"
+readme.workspace = true
 
 [dependencies]
-fx-core = { path = "../fx-core" }
-fx-process = { path = "../fx-process" }
+fx-core.workspace = true
+fx-process.workspace = true
 serde_json.workspace = true

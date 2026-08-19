@@ -1,10 +1,12 @@
 [package]
-name = "fx-core"
+name = "fxrs-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Core agent types, traits, and runtime contracts for fxrs"
+readme.workspace = true
 
 [dependencies]
 serde.workspace = true

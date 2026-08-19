@@ -61,7 +61,7 @@ impl CodexGatewayConfig {
             access_token: Zeroizing::new(access_token.into()),
             account_id: account_id.into(),
             session_id: None,
-            originator: "fx".into(),
+            originator: "fxrs".into(),
         }
     }
 }
@@ -116,7 +116,7 @@ impl Gateway for CodexGateway {
                 .header("chatgpt-account-id", &self.config.account_id)
                 .header("originator", &self.config.originator)
                 .header("openai-beta", "responses=experimental")
-                .header("user-agent", concat!("fx/", env!("CARGO_PKG_VERSION")));
+                .header("user-agent", concat!("fxrs/", env!("CARGO_PKG_VERSION")));
             if let Some(session_id) = self
                 .config
                 .session_id

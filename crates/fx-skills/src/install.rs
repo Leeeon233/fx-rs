@@ -158,7 +158,7 @@ impl Tool for InstallSkillTool {
                     source.display()
                 )
             } else {
-                let mut content = format!("Installed {} skill(s) into fx.\n", installed.len());
+                let mut content = format!("Installed {} skill(s) into fxrs.\n", installed.len());
                 for name in installed {
                     content.push_str("- ");
                     content.push_str(&name);

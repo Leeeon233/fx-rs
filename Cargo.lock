@@ -799,25 +799,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-acp-host"
+name = "fxrs"
 version = "0.0.3"
 dependencies = [
  "agent-client-protocol",
  "base64 0.23.1",
- "fx-auth",
- "fx-config",
- "fx-context",
- "fx-core",
- "fx-gateway",
- "fx-mcp",
- "fx-process",
- "fx-provider",
- "fx-provider-codex",
- "fx-skills",
- "fx-store",
- "fx-subagent",
- "fx-tools",
- "fx-web",
+ "fxrs-acp-host",
+ "fxrs-auth",
+ "fxrs-core",
+ "fxrs-process",
+ "fxrs-provider",
+ "fxrs-store",
+ "fxrs-terminal-host",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "fxrs-acp-host"
+version = "0.0.3"
+dependencies = [
+ "agent-client-protocol",
+ "fxrs-auth",
+ "fxrs-config",
+ "fxrs-context",
+ "fxrs-core",
+ "fxrs-gateway",
+ "fxrs-mcp",
+ "fxrs-process",
+ "fxrs-provider",
+ "fxrs-provider-codex",
+ "fxrs-skills",
+ "fxrs-store",
+ "fxrs-subagent",
+ "fxrs-tools",
+ "fxrs-web",
  "jiff",
  "pollster",
  "serde_json",
@@ -825,12 +842,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-auth"
+name = "fxrs-auth"
 version = "0.0.3"
 dependencies = [
  "atomic-write-file",
  "fs4",
- "fx-provider",
+ "fxrs-provider",
  "libc",
  "serde",
  "serde_json",
@@ -839,33 +856,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-cli"
+name = "fxrs-config"
 version = "0.0.3"
 dependencies = [
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fx-config"
-version = "0.0.3"
-dependencies = [
- "fx-core",
+ "fxrs-core",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "fx-context"
+name = "fxrs-context"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
  "libc",
  "thiserror 2.0.20",
 ]
 
 [[package]]
-name = "fx-core"
+name = "fxrs-core"
 version = "0.0.3"
 dependencies = [
  "pollster",
@@ -875,10 +885,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-gateway"
+name = "fxrs-gateway"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
  "serde_json",
  "stream-rs",
  "ureq",
@@ -886,10 +896,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-mcp"
+name = "fxrs-mcp"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
  "http",
  "rmcp",
  "rustls",
@@ -900,13 +910,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-process"
+name = "fxrs-process"
 version = "0.0.3"
 dependencies = [
  "atomic-write-file",
  "fs4",
- "fx-core",
- "fx-workspace",
+ "fxrs-core",
+ "fxrs-workspace",
  "hex",
  "http",
  "nix 0.28.0",
@@ -921,10 +931,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-provider"
+name = "fxrs-provider"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
  "pollster",
  "serde",
  "thiserror 2.0.20",
@@ -932,14 +942,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-provider-codex"
+name = "fxrs-provider-codex"
 version = "0.0.3"
 dependencies = [
  "base64 0.23.1",
- "fx-auth",
- "fx-core",
- "fx-gateway",
- "fx-provider",
+ "fxrs-auth",
+ "fxrs-core",
+ "fxrs-gateway",
+ "fxrs-provider",
  "libc",
  "pollster",
  "serde",
@@ -952,11 +962,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-skills"
+name = "fxrs-skills"
 version = "0.0.3"
 dependencies = [
  "fs4",
- "fx-core",
+ "fxrs-core",
  "ignore",
  "libc",
  "pollster",
@@ -968,13 +978,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-store"
+name = "fxrs-store"
 version = "0.0.3"
 dependencies = [
  "atomic-write-file",
  "base64 0.23.1",
  "fs4",
- "fx-core",
+ "fxrs-core",
  "hex",
  "libc",
  "pollster",
@@ -985,12 +995,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-subagent"
+name = "fxrs-subagent"
 version = "0.0.3"
 dependencies = [
  "atomic-write-file",
  "fs4",
- "fx-core",
+ "fxrs-core",
  "pollster",
  "serde",
  "serde_json",
@@ -1000,21 +1010,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-terminal-host"
+name = "fxrs-terminal-host"
 version = "0.0.3"
 dependencies = [
- "fx-core",
- "fx-process",
+ "fxrs-core",
+ "fxrs-process",
  "serde_json",
 ]
 
 [[package]]
-name = "fx-tools"
+name = "fxrs-tools"
 version = "0.0.3"
 dependencies = [
  "atomic-write-file",
- "fx-core",
- "fx-workspace",
+ "fxrs-core",
+ "fxrs-workspace",
  "globset",
  "ignore",
  "jiff",
@@ -1025,10 +1035,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-web"
+name = "fxrs-web"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
  "html2text",
  "pollster",
  "reqwest",
@@ -1040,10 +1050,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-workspace"
+name = "fxrs-workspace"
 version = "0.0.3"
 dependencies = [
- "fx-core",
+ "fxrs-core",
 ]
 
 [[package]]

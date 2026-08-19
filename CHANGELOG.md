@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project are documented in this file. The format is
+based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
+project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.0.3] - 2026-08-19
+
+### Added
+
+- Rust workspace implementing the coding-agent behavior reachable through ACP.
+- Provider-neutral model, authentication, credential-store, and gateway traits.
+- Codex Provider with ChatGPT OAuth, token refresh, Responses streaming,
+  function tools, and native web search.
+- Durable sessions, permissions, filesystem and terminal tools, MCP, skills,
+  memory, semantic search, and subagents.
+- `fxrs acp` as the sole public product interface.
+- crates.io packages under `fxrs` and the `fxrs-*` namespace.
+- Locked multi-platform release packaging for Linux and macOS.
+
+[Unreleased]: https://github.com/Leeeon233/fx-rs/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/Leeeon233/fx-rs/releases/tag/v0.0.3

@@ -1,16 +1,18 @@
 [package]
-name = "fx-store"
+name = "fxrs-store"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Durable event-log and tool-result storage for fxrs"
+readme.workspace = true
 
 [dependencies]
 atomic-write-file.workspace = true
 base64.workspace = true
 fs4.workspace = true
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 hex.workspace = true
 libc.workspace = true
 serde.workspace = true

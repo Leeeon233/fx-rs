@@ -1,10 +1,12 @@
 [package]
-name = "fx-workspace"
+name = "fxrs-workspace"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Project instruction and workspace discovery for fxrs"
+readme.workspace = true
 
 [dependencies]
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true

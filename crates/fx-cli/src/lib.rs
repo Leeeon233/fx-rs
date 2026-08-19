@@ -9,9 +9,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Error)]
 pub enum CliError {
-    #[error("usage: fx --version")]
+    #[error("usage: fxrs --version")]
     VersionUsage,
-    #[error("fx: unknown subcommand: {0}; the only protocol command is `fx acp`")]
+    #[error("fxrs: unknown subcommand: {0}; the only protocol command is `fxrs acp`")]
     UnknownCommand(String),
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -54,12 +54,12 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliError> 
 
 pub fn render_help() -> String {
     format!(
-        "fx v{VERSION}\nNative coding agent speaking ACP over stdio.\n\nUsage:\n  fx acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fx version\n"
+        "fxrs v{VERSION}\nNative coding agent speaking ACP over stdio.\n\nUsage:\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fxrs version\n"
     )
 }
 
 fn render_acp_help() -> String {
-    "fx acp\n\nStart the ACP server over stdio. Authentication and model selection are exposed through ACP.\n\nUsage:\n  fx acp [--model <provider/model>] [--log-file <path>]\n\nOptions:\n  --model <provider/model>  Override the default registered model\n  --log-file <path>         Write ACP wire diagnostics to a file\n"
+    "fxrs acp\n\nStart the ACP server over stdio. Authentication and model selection are exposed through ACP.\n\nUsage:\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nOptions:\n  --model <provider/model>  Override the default registered model\n  --log-file <path>         Write ACP wire diagnostics to a file\n"
         .into()
 }
 
@@ -77,8 +77,8 @@ mod tests {
     #[test]
     fn help_exposes_only_the_acp_product_interface() {
         let help = render_help();
-        assert!(help.contains("fx acp"));
-        for removed in ["fx ask", "background", "login", "status", "permissions"] {
+        assert!(help.contains("fxrs acp"));
+        for removed in ["fxrs ask", "background", "login", "status", "permissions"] {
             assert!(!help.contains(removed));
         }
     }

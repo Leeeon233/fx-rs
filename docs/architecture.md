@@ -31,8 +31,8 @@ through object-safe traits. ACP over stdio is the sole public interface.
   implement opt-in ACP-reachable capability families behind core traits.
 - `fx-terminal-host` is a private detached companion used only to retain PTYs
   and monitors across ACP client reconstruction. Public invocation is rejected.
-- `fx-cli` is a tiny cold-path dispatcher; it exposes only `fx acp`, help, and
-  version.
+- the `fxrs` package in `crates/fx-cli` is a tiny cold-path dispatcher; it
+  exposes only `fxrs acp`, help, and version.
 
 There is intentionally no TUI, standalone SDK crate, N-API, or WASM entry
 point.
@@ -50,7 +50,7 @@ select a different provider without global state.
 - its model catalog and default model;
 - authentication method descriptions;
 - interactive authentication and refresh semantics;
-- deletion of its Fx-owned state;
+- deletion of its fxrs-owned state;
 - construction of a model-specific `Gateway`;
 - model capabilities such as a native search tool.
 
@@ -59,10 +59,10 @@ held while a provider refreshes OAuth, preventing two processes from rotating
 the same refresh token concurrently. A failed refresh leaves the old credential
 intact and does not silently fall through to a different source.
 
-The Codex provider first examines the Fx-owned credential. If absent, it may
+The Codex provider first examines the fxrs-owned credential. If absent, it may
 read a private `~/.codex/auth.json`; this ambient state is never refreshed,
-rewritten, or deleted by Fx. ACP `logout` clears all registered providers'
-Fx-owned files because the ACP v1 logout request has no provider identifier.
+rewritten, or deleted by fxrs. ACP `logout` clears all registered providers'
+fxrs-owned files because the ACP v1 logout request has no provider identifier.
 
 ## Semantic contracts
 
@@ -89,14 +89,14 @@ a failed or cancelled generation retains any visible assistant prefix.
 
 ## Cold-start policy
 
-The `fx` dispatcher links no TLS, provider, session, terminal, or protocol
+The `fxrs` dispatcher links no TLS, provider, session, terminal, or protocol
 runtime. Heavy capability families remain separate crates. The release profile
 uses `opt-level = "z"`, fat LTO, one codegen unit, stripped symbols, and aborting
 panics. The Codex adapter uses pooled `ureq`/Rustls and `stream-rs` SSE framing
 instead of a full provider SDK or WebSocket stack.
 
-On the current Apple Silicon macOS host, release binaries measure 320,960 bytes
-for `fx`, 5,055,360 bytes for `fx-acp`, and 924,560 bytes for the private
+On the current Apple Silicon macOS host, release binaries measure 320,832 bytes
+for `fxrs`, 5,388,336 bytes for `fx-acp`, and 957,648 bytes for the private
 terminal host. The first execution after linking measured 0.85 seconds for the
 dispatcher and 0.43 seconds for ACP (including macOS's initial image
 loading/check); the next four fresh processes in each series measured 0.00

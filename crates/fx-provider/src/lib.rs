@@ -165,7 +165,7 @@ pub trait Provider: Send + Sync {
         credentials: &dyn CredentialStore,
     ) -> Result<(), ProviderError>;
 
-    /// Removes Fx-owned authentication state. Ambient state belonging to
+    /// Removes fxrs-owned authentication state. Ambient state belonging to
     /// another application must never be modified.
     fn logout(&self, credentials: &dyn CredentialStore) -> Result<(), ProviderError> {
         let mut lease = credentials.lock(self.id())?;

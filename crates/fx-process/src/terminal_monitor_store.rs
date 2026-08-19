@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs as _};

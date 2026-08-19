@@ -1,15 +1,17 @@
 [package]
-name = "fx-auth"
+name = "fxrs-auth"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Provider-neutral credential storage and authentication orchestration for fxrs"
+readme.workspace = true
 
 [dependencies]
 atomic-write-file.workspace = true
 fs4.workspace = true
-fx-provider = { path = "../fx-provider" }
+fx-provider.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true

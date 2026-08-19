@@ -487,7 +487,7 @@ impl WebFetcher for ReqwestWebFetcher {
                         "accept",
                         "text/html, text/plain, application/json, application/xml;q=0.9, */*;q=0.1",
                     )
-                    .header("user-agent", "fx/0.0.3 web_fetch");
+                    .header("user-agent", "fxrs/0.0.3 web_fetch");
                 let mut response =
                     cancellable(request.send(), cancellation)
                         .await?

@@ -1,15 +1,17 @@
 [package]
-name = "fx-subagent"
+name = "fxrs-subagent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Durable child-agent orchestration for fxrs"
+readme.workspace = true
 
 [dependencies]
 atomic-write-file.workspace = true
 fs4.workspace = true
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

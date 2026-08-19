@@ -1,14 +1,16 @@
 [package]
-name = "fx-skills"
+name = "fxrs-skills"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Skill discovery and loading for fxrs"
+readme.workspace = true
 
 [dependencies]
 fs4.workspace = true
-fx-core = { path = "../fx-core" }
+fx-core.workspace = true
 ignore = "0.4.23"
 serde.workspace = true
 serde_json.workspace = true
