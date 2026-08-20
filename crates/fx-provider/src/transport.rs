@@ -1,6 +1,6 @@
-//! Minimal OpenAI Responses SSE transport used by provider implementations.
+//! Minimal streaming transports used by the built-in provider implementations.
 //!
-//! This crate deliberately keeps a blocking pooled HTTP client outside the
+//! This module deliberately keeps a blocking pooled HTTP client outside the
 //! executor-neutral core. The ACP composition root runs it on a worker thread.
 
 use std::collections::{BTreeMap, HashMap};
@@ -16,6 +16,7 @@ use stream_rs::sse::{SseEvent, SseParser};
 use zeroize::Zeroizing;
 
 pub const DEFAULT_CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex/responses";
+pub const DEFAULT_VERCEL_ENDPOINT: &str = "https://ai-gateway.vercel.sh/v3/ai/language-model";
 pub const CODEX_WEB_SEARCH_TOOL_ID: &str = "codex.web_search";
 
 const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
@@ -36,6 +37,25 @@ pub fn codex_endpoint_from_base(base: Option<&str>) -> String {
         format!("{normalized}/codex/responses")
     } else {
         DEFAULT_CODEX_ENDPOINT.into()
+    }
+}
+
+/// Accepts only a loopback override because this endpoint receives a bearer
+/// credential. Production credentials can therefore never be redirected by a
+/// stray environment variable.
+pub fn vercel_endpoint_from_base(base: Option<&str>) -> String {
+    let Some(base) = base else {
+        return DEFAULT_VERCEL_ENDPOINT.into();
+    };
+    let normalized = base.trim_end_matches('/');
+    let loopback = normalized.starts_with("http://127.0.0.1:")
+        || normalized.starts_with("http://localhost:")
+        || normalized == "http://localhost"
+        || normalized == "http://127.0.0.1";
+    if loopback {
+        format!("{normalized}/v3/ai/language-model")
+    } else {
+        DEFAULT_VERCEL_ENDPOINT.into()
     }
 }
 
@@ -728,6 +748,585 @@ fn response_error_message(object: &Map<String, Value>) -> String {
         .into()
 }
 
+/// Configuration for the Vercel AI Gateway LanguageModel V3 transport.
+#[derive(Clone)]
+pub struct VercelGatewayConfig {
+    pub endpoint: String,
+    pub model: String,
+    access_token: Zeroizing<String>,
+    pub team_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+impl VercelGatewayConfig {
+    pub fn new(model: impl Into<String>, access_token: impl Into<String>) -> Self {
+        Self {
+            endpoint: DEFAULT_VERCEL_ENDPOINT.into(),
+            model: model.into(),
+            access_token: Zeroizing::new(access_token.into()),
+            team_id: None,
+            session_id: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for VercelGatewayConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VercelGatewayConfig")
+            .field("endpoint", &self.endpoint)
+            .field("model", &self.model)
+            .field("access_token", &"[redacted]")
+            .field("team_id", &self.team_id)
+            .field("session_id", &self.session_id)
+            .finish()
+    }
+}
+
+pub struct VercelGateway {
+    config: VercelGatewayConfig,
+    http: ureq::Agent,
+}
+
+impl VercelGateway {
+    pub fn new(config: VercelGatewayConfig) -> Self {
+        Self {
+            config,
+            http: ureq::Agent::new_with_defaults(),
+        }
+    }
+}
+
+impl Gateway for VercelGateway {
+    fn complete<'a>(
+        &'a self,
+        request: GatewayRequest,
+        events: &'a mut dyn GatewayEventSink,
+    ) -> BoxFuture<'a, Result<GatewayResponse, GatewayError>> {
+        Box::pin(async move {
+            if self.config.access_token.is_empty() {
+                return Err(GatewayError::Authentication);
+            }
+            let body = build_vercel_request_body(&request)?;
+            let authorization =
+                Zeroizing::new(format!("Bearer {}", self.config.access_token.as_str()));
+            let mut builder = self
+                .http
+                .post(&self.config.endpoint)
+                .header("content-type", "application/json")
+                .header("accept", "text/event-stream")
+                .header("authorization", authorization.as_str())
+                .header("http-referer", "https://github.com/Leeeon233/fx-rs")
+                .header("x-title", "fxrs")
+                .header("ai-gateway-protocol-version", "0.0.1")
+                .header("ai-language-model-specification-version", "4")
+                .header("ai-language-model-id", &self.config.model)
+                .header("ai-language-model-streaming", "true")
+                .header("user-agent", concat!("fxrs/", env!("CARGO_PKG_VERSION")));
+            if let Some(team_id) = self
+                .config
+                .team_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder = builder.header("x-vercel-ai-gateway-team", team_id);
+            }
+            if let Some(session_id) = self
+                .config
+                .session_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder = builder
+                    .header("x-session-id", session_id)
+                    .header("x-session-affinity", session_id);
+            }
+            let mut response = builder.send(body.as_slice()).map_err(map_send_error)?;
+            consume_vercel_sse(&mut response.body_mut().as_reader(), events)
+        })
+    }
+}
+
+/// Projects provider-neutral history into the AI SDK LanguageModel V3 wire
+/// shape accepted by Vercel AI Gateway.
+pub fn build_vercel_request_body(request: &GatewayRequest) -> Result<Vec<u8>, GatewayError> {
+    let prompt = request
+        .messages
+        .iter()
+        .map(project_vercel_message)
+        .collect::<Result<Vec<_>, _>>()?;
+    let tools = request
+        .tools
+        .iter()
+        .map(project_vercel_tool)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut root = Map::new();
+    root.insert("prompt".into(), Value::Array(prompt));
+    root.insert("tools".into(), Value::Array(tools));
+    root.insert(
+        "toolChoice".into(),
+        json!({
+            "type": match request.tool_choice {
+                fx_core::ToolChoice::Auto => "auto",
+                fx_core::ToolChoice::None => "none",
+                fx_core::ToolChoice::Required => "required",
+            }
+        }),
+    );
+    if let Some(limit) = request.max_output_tokens {
+        root.insert("maxOutputTokens".into(), Value::from(limit));
+    }
+    serde_json::to_vec(&root)
+        .map_err(|error| GatewayError::InvalidResponse(format!("request serialization: {error}")))
+}
+
+fn project_vercel_message(message: &ChatMessage) -> Result<Value, GatewayError> {
+    Ok(match message.role {
+        Role::System => json!({
+            "role": "system",
+            "content": message.content.as_deref().unwrap_or("")
+        }),
+        Role::User => {
+            let content = message
+                .content
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .map(|text| vec![json!({"type": "text", "text": text})])
+                .unwrap_or_default();
+            json!({"role": "user", "content": content})
+        }
+        Role::Assistant => {
+            let mut content = Vec::new();
+            if let Some(text) = message.content.as_deref().filter(|value| !value.is_empty()) {
+                content.push(json!({"type": "text", "text": text}));
+            }
+            for call in &message.tool_calls {
+                let input: Value = serde_json::from_str(&call.arguments_json).map_err(|_| {
+                    GatewayError::InvalidResponse(format!(
+                        "assistant tool call `{}` has invalid arguments",
+                        call.id
+                    ))
+                })?;
+                content.push(json!({
+                    "type": "tool-call",
+                    "toolCallId": call.id,
+                    "toolName": call.name,
+                    "input": input
+                }));
+            }
+            json!({"role": "assistant", "content": content})
+        }
+        Role::Tool => {
+            let call_id = message
+                .tool_call_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    GatewayError::InvalidResponse("tool result is missing its call id".into())
+                })?;
+            json!({
+                "role": "tool",
+                "content": [{
+                    "type": "tool-result",
+                    "toolCallId": call_id,
+                    "toolName": message.tool_name.as_deref().unwrap_or("unknown"),
+                    "output": {
+                        "type": "text",
+                        "value": message.content.as_deref().unwrap_or("")
+                    }
+                }]
+            })
+        }
+    })
+}
+
+fn project_vercel_tool(tool: &fx_core::ToolAdvertisement) -> Result<Value, GatewayError> {
+    match &tool.kind {
+        ToolAdvertisementKind::Function => Ok(json!({
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "inputSchema": tool.input_schema
+        })),
+        ToolAdvertisementKind::Provider { id, arguments } => {
+            let mut projected = arguments.as_object().cloned().ok_or_else(|| {
+                GatewayError::InvalidResponse(format!(
+                    "Vercel provider tool `{id}` arguments must be an object"
+                ))
+            })?;
+            projected.insert("type".into(), Value::String("provider".into()));
+            projected.insert("id".into(), Value::String(id.clone()));
+            projected.insert("name".into(), Value::String(tool.name.clone()));
+            Ok(Value::Object(projected))
+        }
+    }
+}
+
+#[derive(Default)]
+struct VercelPendingTool {
+    name: String,
+    arguments: String,
+    ended: bool,
+}
+
+#[derive(Default)]
+struct VercelStreamState {
+    content: String,
+    tool_calls: Vec<ToolCall>,
+    pending_tools: HashMap<String, VercelPendingTool>,
+    generation_id: Option<String>,
+    finish_reason: Option<FinishReason>,
+    usage: Usage,
+    provider_error: Option<String>,
+}
+
+impl VercelStreamState {
+    fn finish(self) -> Result<GatewayResponse, GatewayError> {
+        if let Some(error) = self.provider_error {
+            return Err(GatewayError::Rejected(error));
+        }
+        if !self.pending_tools.is_empty() {
+            return Err(GatewayError::InvalidResponse(
+                "Vercel stream ended with an unfinished tool input".into(),
+            ));
+        }
+        Ok(GatewayResponse {
+            content: (!self.content.is_empty()).then_some(self.content),
+            tool_calls: self.tool_calls,
+            generation_id: self.generation_id,
+            finish_reason: self.finish_reason,
+            usage: self.usage,
+            delivery_ambiguous: false,
+        })
+    }
+}
+
+pub fn consume_vercel_sse(
+    reader: &mut dyn Read,
+    events: &mut dyn GatewayEventSink,
+) -> Result<GatewayResponse, GatewayError> {
+    let mut parser = SseParser::new();
+    let mut parsed_events = Vec::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    let mut total_bytes = 0usize;
+    let mut state = VercelStreamState::default();
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .map_err(|_| GatewayError::PossiblySent)?;
+        if count == 0 {
+            parser.finish(&mut parsed_events);
+        } else {
+            total_bytes = total_bytes.saturating_add(count);
+            if total_bytes > MAX_STREAM_BYTES {
+                return Err(GatewayError::InvalidResponse(
+                    "Vercel stream exceeded 64 MiB".into(),
+                ));
+            }
+            parser.feed(&buffer[..count], &mut parsed_events);
+        }
+        for event in parsed_events.drain(..) {
+            if event.data.len() > MAX_EVENT_BYTES {
+                return Err(GatewayError::InvalidResponse(
+                    "Vercel event exceeded 4 MiB".into(),
+                ));
+            }
+            if process_vercel_event(&mut state, event, events)? {
+                return state.finish();
+            }
+        }
+        if count == 0 {
+            return Err(GatewayError::InvalidResponse(
+                "Vercel stream ended before a finish event".into(),
+            ));
+        }
+    }
+}
+
+fn process_vercel_event(
+    state: &mut VercelStreamState,
+    event: SseEvent,
+    events: &mut dyn GatewayEventSink,
+) -> Result<bool, GatewayError> {
+    if event.data == "[DONE]" {
+        return Ok(false);
+    }
+    let root: Value = serde_json::from_str(&event.data)
+        .map_err(|error| GatewayError::InvalidResponse(format!("invalid SSE JSON: {error}")))?;
+    let object = root
+        .as_object()
+        .ok_or_else(|| GatewayError::InvalidResponse("SSE event must be an object".into()))?;
+    capture_vercel_generation_id(state, object);
+    match object.get("type").and_then(Value::as_str).unwrap_or("") {
+        "text-delta" => {
+            if let Some(delta) = object.get("delta").and_then(Value::as_str) {
+                state.content.push_str(delta);
+                if !delta.is_empty() {
+                    events.emit(GatewayEvent::ContentDelta(delta.into()));
+                }
+            }
+        }
+        "reasoning-delta" => {
+            if let Some(delta) = object.get("delta").and_then(Value::as_str)
+                && !delta.is_empty()
+            {
+                events.emit(GatewayEvent::ReasoningDelta(delta.into()));
+            }
+        }
+        "tool-input-start" => {
+            let id = required_string(object, "id")?.to_owned();
+            let name = required_string(object, "toolName")?.to_owned();
+            if state.pending_tools.contains_key(&id)
+                || state.tool_calls.iter().any(|call| call.id == id)
+            {
+                return Err(GatewayError::InvalidResponse(format!(
+                    "duplicate Vercel tool input `{id}`"
+                )));
+            }
+            events.emit(GatewayEvent::ToolStarted {
+                id: id.clone(),
+                name: name.clone(),
+            });
+            state.pending_tools.insert(
+                id,
+                VercelPendingTool {
+                    name,
+                    arguments: String::new(),
+                    ended: false,
+                },
+            );
+        }
+        "tool-input-delta" => {
+            let id = required_string(object, "id")?;
+            let delta = object.get("delta").and_then(Value::as_str).unwrap_or("");
+            let pending = state.pending_tools.get_mut(id).ok_or_else(|| {
+                GatewayError::InvalidResponse(format!(
+                    "Vercel tool input delta has no start event for `{id}`"
+                ))
+            })?;
+            pending.arguments.push_str(delta);
+        }
+        "tool-input-end" => {
+            let id = required_string(object, "id")?;
+            let pending = state.pending_tools.get_mut(id).ok_or_else(|| {
+                GatewayError::InvalidResponse(format!(
+                    "Vercel tool input end has no start event for `{id}`"
+                ))
+            })?;
+            pending.ended = true;
+        }
+        "tool-call" => capture_vercel_tool_call(state, object, events)?,
+        "tool-result" => capture_vercel_tool_result(state, object)?,
+        "error" => state.provider_error = Some(vercel_error_message(object)),
+        "finish" => {
+            let reason = object
+                .get("finishReason")
+                .and_then(Value::as_object)
+                .and_then(|reason| reason.get("unified"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    GatewayError::InvalidResponse("Vercel finish reason is missing".into())
+                })?;
+            state.finish_reason = Some(match reason {
+                "stop" => FinishReason::Stop,
+                "length" => FinishReason::Length,
+                "content-filter" => FinishReason::ContentFilter,
+                "tool-calls" => FinishReason::ToolCalls,
+                "error" => {
+                    state.provider_error.get_or_insert_with(|| {
+                        object
+                            .get("finishReason")
+                            .and_then(Value::as_object)
+                            .and_then(|reason| reason.get("raw"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("Vercel provider reported an error")
+                            .into()
+                    });
+                    FinishReason::Error
+                }
+                "other" => FinishReason::Other,
+                value => {
+                    return Err(GatewayError::InvalidResponse(format!(
+                        "unknown Vercel finish reason `{value}`"
+                    )));
+                }
+            });
+            state.usage = parse_vercel_usage(object);
+            return Ok(true);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn capture_vercel_tool_call(
+    state: &mut VercelStreamState,
+    object: &Map<String, Value>,
+    events: &mut dyn GatewayEventSink,
+) -> Result<(), GatewayError> {
+    let id = required_string(object, "toolCallId")?.to_owned();
+    if state.tool_calls.iter().any(|call| call.id == id) {
+        return Err(GatewayError::InvalidResponse(format!(
+            "duplicate Vercel tool call `{id}`"
+        )));
+    }
+    let final_name = object
+        .get("toolName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    let final_arguments = match object.get("input") {
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(value) => Some(serde_json::to_string(value).map_err(|error| {
+            GatewayError::InvalidResponse(format!("Vercel tool input is invalid: {error}"))
+        })?),
+        None => None,
+    };
+    let mut pending_id = state.pending_tools.contains_key(&id).then(|| id.clone());
+    if pending_id.is_none() {
+        let candidates = state
+            .pending_tools
+            .iter()
+            .filter(|(_, pending)| {
+                pending.ended
+                    && final_name
+                        .as_deref()
+                        .is_none_or(|name| name == pending.name)
+                    && final_arguments.as_deref().is_none_or(|arguments| {
+                        json_arguments_equivalent(arguments, &pending.arguments)
+                    })
+            })
+            .map(|(pending_id, _)| pending_id.clone())
+            .collect::<Vec<_>>();
+        if candidates.len() == 1 {
+            pending_id = candidates.into_iter().next();
+        }
+    }
+    let pending = pending_id
+        .as_deref()
+        .and_then(|pending_id| state.pending_tools.remove(pending_id));
+    if let (Some(final_name), Some(pending)) = (&final_name, &pending)
+        && final_name != &pending.name
+    {
+        return Err(GatewayError::InvalidResponse(format!(
+            "Vercel tool call `{id}` changed its streamed tool name"
+        )));
+    }
+    let name = final_name
+        .or_else(|| pending.as_ref().map(|pending| pending.name.clone()))
+        .ok_or_else(|| GatewayError::InvalidResponse("Vercel tool name is missing".into()))?;
+    let arguments = final_arguments.unwrap_or_else(|| {
+        pending
+            .as_ref()
+            .map(|pending| pending.arguments.clone())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "{}".into())
+    });
+    if pending.is_none() {
+        events.emit(GatewayEvent::ToolStarted {
+            id: id.clone(),
+            name: name.clone(),
+        });
+    }
+    let argument_integrity = if serde_json::from_str::<Value>(&arguments).is_ok() {
+        ToolArgumentIntegrity::Valid
+    } else {
+        ToolArgumentIntegrity::MalformedJson
+    };
+    let provisional_id = pending_id.filter(|pending_id| pending_id != &id);
+    state.tool_calls.push(ToolCall {
+        id,
+        name,
+        arguments_json: arguments,
+        argument_integrity,
+        provisional_id,
+        provider_result: None,
+        provenance: if object.get("providerExecuted").and_then(Value::as_bool) == Some(true) {
+            ToolExecutionProvenance::Provider
+        } else {
+            ToolExecutionProvenance::FxLocal
+        },
+    });
+    Ok(())
+}
+
+fn json_arguments_equivalent(left: &str, right: &str) -> bool {
+    left == right
+        || serde_json::from_str::<Value>(left)
+            .ok()
+            .zip(serde_json::from_str::<Value>(right).ok())
+            .is_some_and(|(left, right)| left == right)
+}
+
+fn capture_vercel_tool_result(
+    state: &mut VercelStreamState,
+    object: &Map<String, Value>,
+) -> Result<(), GatewayError> {
+    let id = required_string(object, "toolCallId")?;
+    let call = state
+        .tool_calls
+        .iter_mut()
+        .find(|call| call.id == id)
+        .ok_or_else(|| {
+            GatewayError::InvalidResponse(format!("Vercel tool result has no matching call `{id}`"))
+        })?;
+    if call.provenance != ToolExecutionProvenance::Provider {
+        return Err(GatewayError::InvalidResponse(format!(
+            "Vercel returned a result for locally executed tool `{id}`"
+        )));
+    }
+    let result = object.get("result").ok_or_else(|| {
+        GatewayError::InvalidResponse(format!("Vercel tool result `{id}` is missing"))
+    })?;
+    call.provider_result = Some(serde_json::to_string(result).map_err(|error| {
+        GatewayError::InvalidResponse(format!("Vercel tool result is invalid: {error}"))
+    })?);
+    Ok(())
+}
+
+fn capture_vercel_generation_id(state: &mut VercelStreamState, object: &Map<String, Value>) {
+    if let Some(id) = object
+        .get("providerMetadata")
+        .and_then(Value::as_object)
+        .and_then(|metadata| metadata.get("gateway"))
+        .and_then(Value::as_object)
+        .and_then(|gateway| gateway.get("generationId"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        state.generation_id.get_or_insert_with(|| id.into());
+    }
+}
+
+fn parse_vercel_usage(object: &Map<String, Value>) -> Usage {
+    let usage = object.get("usage").and_then(Value::as_object);
+    Usage {
+        input_tokens: usage
+            .and_then(|usage| usage.get("inputTokens"))
+            .and_then(Value::as_object)
+            .and_then(|tokens| tokens.get("total"))
+            .and_then(Value::as_u64),
+        output_tokens: usage
+            .and_then(|usage| usage.get("outputTokens"))
+            .and_then(Value::as_object)
+            .and_then(|tokens| tokens.get("total"))
+            .and_then(Value::as_u64),
+    }
+}
+
+fn vercel_error_message(object: &Map<String, Value>) -> String {
+    let error = object.get("error").and_then(Value::as_object);
+    let code = error
+        .and_then(|error| error.get("code"))
+        .and_then(Value::as_str);
+    let message = error
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .or_else(|| object.get("message").and_then(Value::as_str))
+        .unwrap_or("Vercel provider reported an error");
+    code.map_or_else(|| message.into(), |code| format!("{code}: {message}"))
+}
+
 fn map_send_error(error: ureq::Error) -> GatewayError {
     match error {
         ureq::Error::StatusCode(401 | 403) => GatewayError::Authentication,
@@ -893,5 +1492,142 @@ mod tests {
             ))),
             GatewayError::PossiblySent
         ));
+    }
+
+    #[test]
+    fn projects_vercel_history_and_functions() {
+        let request = GatewayRequest {
+            model: "vercel/zai/glm-5.2".into(),
+            messages: vec![
+                ChatMessage::text(Role::System, "system"),
+                ChatMessage::text(Role::User, "question"),
+                ChatMessage {
+                    role: Role::Assistant,
+                    content: Some("working".into()),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "read_file".into(),
+                        arguments_json: "{\"path\":\"README.md\"}".into(),
+                        argument_integrity: ToolArgumentIntegrity::Valid,
+                        provisional_id: None,
+                        provider_result: None,
+                        provenance: ToolExecutionProvenance::FxLocal,
+                    }],
+                    permission_feedback: false,
+                    cache_policy: CachePolicy::Default,
+                },
+                ChatMessage {
+                    role: Role::Tool,
+                    content: Some("contents".into()),
+                    tool_call_id: Some("call_1".into()),
+                    tool_name: Some("read_file".into()),
+                    tool_calls: Vec::new(),
+                    permission_feedback: false,
+                    cache_policy: CachePolicy::Default,
+                },
+            ],
+            tools: vec![ToolAdvertisement::function(
+                "read_file",
+                "Read",
+                json!({"type": "object"}),
+            )],
+            tool_choice: ToolChoice::Required,
+            max_output_tokens: Some(4096),
+        };
+        let value: Value =
+            serde_json::from_slice(&build_vercel_request_body(&request).unwrap()).unwrap();
+        assert_eq!(value["prompt"][0]["content"], "system");
+        assert_eq!(value["prompt"][1]["content"][0]["text"], "question");
+        assert_eq!(
+            value["prompt"][2]["content"][1]["input"]["path"],
+            "README.md"
+        );
+        assert_eq!(
+            value["prompt"][3]["content"][0]["output"]["value"],
+            "contents"
+        );
+        assert_eq!(value["tools"][0]["inputSchema"]["type"], "object");
+        assert_eq!(value["toolChoice"]["type"], "required");
+        assert_eq!(value["maxOutputTokens"], 4096);
+    }
+
+    #[test]
+    fn parses_vercel_text_reasoning_tools_usage_and_identity() {
+        let stream = concat!(
+            "data: {\"type\":\"response-metadata\",\"modelId\":\"zai/glm-5.2\"}\n\n",
+            "data: {\"type\":\"reasoning-delta\",\"delta\":\"think\"}\n\n",
+            "data: {\"type\":\"text-delta\",\"delta\":\"hello\",\"providerMetadata\":{\"gateway\":{\"generationId\":\"gen_1\"}}}\n\n",
+            "data: {\"type\":\"tool-input-start\",\"id\":\"call_1\",\"toolName\":\"read_file\"}\n\n",
+            "data: {\"type\":\"tool-input-delta\",\"id\":\"call_1\",\"delta\":\"{\\\"path\\\":\\\"README.md\\\"}\"}\n\n",
+            "data: {\"type\":\"tool-input-end\",\"id\":\"call_1\"}\n\n",
+            "data: {\"type\":\"tool-call\",\"toolCallId\":\"call_1\",\"toolName\":\"read_file\"}\n\n",
+            "data: {\"type\":\"finish\",\"finishReason\":{\"unified\":\"tool-calls\"},\"usage\":{\"inputTokens\":{\"total\":10},\"outputTokens\":{\"total\":5}}}\n\n",
+        );
+        let mut events = Events::default();
+        let response = consume_vercel_sse(&mut Cursor::new(stream), &mut events).unwrap();
+        assert_eq!(response.content.as_deref(), Some("hello"));
+        assert_eq!(response.generation_id.as_deref(), Some("gen_1"));
+        assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(response.usage.input_tokens, Some(10));
+        assert_eq!(response.usage.output_tokens, Some(5));
+        assert_eq!(response.tool_calls[0].id, "call_1");
+        assert_eq!(
+            response.tool_calls[0].arguments_json,
+            "{\"path\":\"README.md\"}"
+        );
+        assert!(
+            events
+                .0
+                .contains(&GatewayEvent::ReasoningDelta("think".into()))
+        );
+        assert!(events.0.contains(&GatewayEvent::ToolStarted {
+            id: "call_1".into(),
+            name: "read_file".into(),
+        }));
+    }
+
+    #[test]
+    fn reconciles_vercel_provisional_and_final_tool_ids() {
+        let stream = concat!(
+            "data: {\"type\":\"tool-input-start\",\"id\":\"provisional_1\",\"toolName\":\"read_file\"}\n\n",
+            "data: {\"type\":\"tool-input-delta\",\"id\":\"provisional_1\",\"delta\":\"{\\\"path\\\":\\\"README.md\\\"}\"}\n\n",
+            "data: {\"type\":\"tool-input-end\",\"id\":\"provisional_1\"}\n\n",
+            "data: {\"type\":\"tool-call\",\"toolCallId\":\"final_1\",\"toolName\":\"read_file\",\"input\":{\"path\":\"README.md\"}}\n\n",
+            "data: {\"type\":\"finish\",\"finishReason\":{\"unified\":\"tool-calls\"}}\n\n",
+        );
+        let response =
+            consume_vercel_sse(&mut Cursor::new(stream), &mut Events::default()).unwrap();
+        assert_eq!(response.tool_calls[0].id, "final_1");
+        assert_eq!(
+            response.tool_calls[0].provisional_id.as_deref(),
+            Some("provisional_1")
+        );
+        assert_eq!(
+            response.tool_calls[0].arguments_json,
+            "{\"path\":\"README.md\"}"
+        );
+    }
+
+    #[test]
+    fn rejects_vercel_provider_error_and_unsafe_endpoint_override() {
+        let stream = concat!(
+            "data: {\"type\":\"error\",\"error\":{\"code\":\"provider_down\",\"message\":\"unavailable\"}}\n\n",
+            "data: {\"type\":\"finish\",\"finishReason\":{\"unified\":\"error\"}}\n\n",
+        );
+        let error =
+            consume_vercel_sse(&mut Cursor::new(stream), &mut Events::default()).unwrap_err();
+        assert!(
+            matches!(error, GatewayError::Rejected(message) if message == "provider_down: unavailable")
+        );
+        assert_eq!(
+            vercel_endpoint_from_base(Some("https://example.com")),
+            DEFAULT_VERCEL_ENDPOINT
+        );
+        assert_eq!(
+            vercel_endpoint_from_base(Some("http://127.0.0.1:1234")),
+            "http://127.0.0.1:1234/v3/ai/language-model"
+        );
     }
 }

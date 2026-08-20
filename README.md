@@ -25,6 +25,8 @@ fxrs
 active turn, `Ctrl+M` selects a model, and `Shift+Tab` cycles the session mode.
 Use `/help` for the complete keyboard and command reference. Notable commands
 include `/login`, `/model`, `/mode`, `/resume`, `/new`, `/clear`, and `/quit`.
+Typing `/` opens a filtered command list; use `Up`/`Down` to select, `Tab` to
+complete, `Enter` to run, and `Esc` to close it.
 
 The interface streams Markdown responses and reasoning, updates tool cards in
 place, provides foldable scrollback, queues follow-up prompts, and presents ACP
@@ -80,19 +82,30 @@ optional model route can be selected explicitly:
 
 ```sh
 fxrs acp --model codex/gpt-5.6-sol
+fxrs acp --model vercel/zai/glm-5.2
 ```
 
 ## Authentication
 
-The ACP `initialize` response advertises the `codex:chatgpt` authentication
-method. An ACP client can invoke `authenticate` to open the browser-based
-ChatGPT OAuth flow. fxrs stores credentials it owns under
-`~/.fx/credentials`, with private permissions, process locks, and atomic
-replacement.
+The ACP `initialize` response advertises both `codex:chatgpt` and
+`vercel:oauth`. An ACP client can invoke `authenticate` to start the
+provider-owned browser flow. Vercel uses OIDC discovery and device
+authorization; the verification URL and code are also written to stderr in
+case a browser cannot be opened. fxrs stores credentials it owns under
+`~/.fx/credentials`, with private permissions, process locks, refresh-token
+rotation, and atomic replacement.
 
 If no fxrs-owned credential exists, the Codex Provider can read a valid
 `~/.codex/auth.json` created by `codex login`. That ambient credential is never
 refreshed, rewritten, or deleted by fxrs.
+
+Vercel AI Gateway also accepts ambient credentials without persisting them.
+Resolution order is `VERCEL_OIDC_TOKEN`, `AI_GATEWAY_API_KEY`, then the
+fxrs-owned Vercel OAuth session. Set `FX_VERCEL_TEAM` to a team ID (or a slug
+during OAuth login); otherwise OAuth selects the first team returned by
+Vercel. `FX_VERCEL_MODELS` can add comma-separated Gateway model IDs to the
+built-in cold-start catalog without performing network I/O during ACP
+initialization.
 
 In the TUI, run `/login` to invoke the advertised authentication method; when
 multiple providers advertise methods, fxrs opens a provider picker.
@@ -101,10 +114,11 @@ Codex-specific credential logic.
 
 ## Architecture
 
-Codex is the first concrete Provider. The registry supports multiple providers
-at once and routes models as `provider/model`, so adding OpenAI API-key,
-Anthropic, or other adapters does not change the agent loop, ACP projection,
-credential store, or child-agent model selection.
+Codex and Vercel AI Gateway are loaded simultaneously. The registry routes
+models as `provider/model`; Vercel's provider-local IDs retain their own vendor
+prefix, for example `vercel/anthropic/claude-sonnet-4.6`. Adding another
+provider does not change the agent loop, ACP projection, credential store, or
+child-agent model selection.
 
 ACP-reachable capabilities include durable event-log sessions, streaming and
 cancellation, permission review, filesystem tools, PTY sessions and monitors,

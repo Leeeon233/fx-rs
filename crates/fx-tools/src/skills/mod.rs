@@ -923,19 +923,15 @@ fn xml_scalar(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+    use uuid::Uuid;
 
     struct TempDir(PathBuf);
 
     impl TempDir {
         fn new() -> Self {
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("fx-skills-{unique}"));
+            let path = std::env::temp_dir().join(format!("fx-skills-{}", Uuid::new_v4().simple()));
             fs::create_dir_all(&path).unwrap();
             Self(path)
         }

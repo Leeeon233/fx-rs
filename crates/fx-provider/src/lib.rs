@@ -4,6 +4,13 @@
 //! construction. The registry intentionally supports several providers in one
 //! process; selecting a model is therefore also selecting its provider.
 
+pub mod codex;
+mod transport;
+pub mod vercel;
+
+pub use codex::{CodexProvider, CodexProviderConfig};
+pub use vercel::{VercelProvider, VercelProviderConfig};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
@@ -237,7 +244,7 @@ impl ProviderRegistry {
         let mut models = Vec::new();
         let mut seen_models = BTreeSet::new();
         for model in provider.models() {
-            validate_component("model id", &model.id)?;
+            validate_model_id(&model.id)?;
             if model.provider_id != provider.id() {
                 return Err(ProviderError::Configuration(format!(
                     "model `{}` declares provider `{}` instead of `{}`",
@@ -393,6 +400,21 @@ fn validate_component(label: &str, value: &str) -> Result<(), ProviderError> {
     }
 }
 
+fn validate_model_id(value: &str) -> Result<(), ProviderError> {
+    let valid = !value.is_empty()
+        && value.len() <= 256
+        && value
+            .split(MODEL_ROUTE_SEPARATOR)
+            .all(|component| validate_component("model id component", component).is_ok());
+    if valid {
+        Ok(())
+    } else {
+        Err(ProviderError::Configuration(format!(
+            "model id `{value}` is not a safe slash-separated identifier"
+        )))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -525,5 +547,64 @@ mod tests {
         registry.register(Arc::new(TestProvider("alpha"))).unwrap();
         assert!(registry.register(Arc::new(TestProvider("alpha"))).is_err());
         assert_eq!(registry.models().len(), 1);
+    }
+
+    struct NestedModelProvider;
+
+    impl Provider for NestedModelProvider {
+        fn id(&self) -> &str {
+            "vercel"
+        }
+
+        fn name(&self) -> &str {
+            "Vercel AI Gateway"
+        }
+
+        fn models(&self) -> Vec<Model> {
+            vec![Model {
+                provider_id: "vercel".into(),
+                id: "zai/glm-5.2".into(),
+                name: "GLM 5.2".into(),
+                context_window: 1,
+                max_output_tokens: 1,
+                reasoning: true,
+                capabilities: ModelCapabilities::default(),
+            }]
+        }
+
+        fn default_model(&self) -> &str {
+            "zai/glm-5.2"
+        }
+
+        fn auth_methods(&self) -> Vec<AuthMethod> {
+            Vec::new()
+        }
+
+        fn authenticate(
+            &self,
+            method_id: &str,
+            _credentials: &dyn CredentialStore,
+        ) -> Result<(), ProviderError> {
+            Err(ProviderError::UnknownAuthMethod(method_id.into()))
+        }
+
+        fn gateway(
+            &self,
+            _model_id: &str,
+            _session_id: Option<&str>,
+            _credentials: &dyn CredentialStore,
+        ) -> Result<Arc<dyn Gateway>, ProviderError> {
+            Ok(Arc::new(EmptyGateway))
+        }
+    }
+
+    #[test]
+    fn registry_accepts_provider_local_model_paths() {
+        let mut registry = ProviderRegistry::new();
+        registry.register(Arc::new(NestedModelProvider)).unwrap();
+        assert_eq!(
+            registry.default_model().unwrap().route(),
+            "vercel/zai/glm-5.2"
+        );
     }
 }

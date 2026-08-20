@@ -504,8 +504,9 @@ async fn acp_initialization_stays_lazy_when_no_credential_exists() {
                 .block_task()
                 .await?;
             assert_eq!(initialized.protocol_version, ProtocolVersion::V1);
-            assert_eq!(initialized.auth_methods.len(), 1);
+            assert_eq!(initialized.auth_methods.len(), 2);
             assert_eq!(initialized.auth_methods[0].id().0.as_ref(), "codex:chatgpt");
+            assert_eq!(initialized.auth_methods[1].id().0.as_ref(), "vercel:oauth");
             assert!(initialized.agent_capabilities.auth.logout.is_some());
             let session = connection
                 .send_request(NewSessionRequest::new(workspace_path))

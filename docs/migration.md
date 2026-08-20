@@ -7,8 +7,9 @@ ownership inventory is in [source-inventory.md](source-inventory.md).
 | --- | --- | --- |
 | shared agent/message semantics | `fx-core` | Implemented |
 | provider ports and catalogs | `fx-provider` + `fx-core::Gateway` | Multi-provider registry implemented |
-| auth and secret storage | `fx-auth` + provider adapters | Generic store and Codex OAuth implemented |
-| Codex Responses provider | `fx-provider-codex` + `fx-gateway` | Implemented |
+| auth and secret storage | `fx-auth` + provider adapters | Generic store, Codex OAuth, and Vercel device OAuth implemented |
+| Codex Responses provider | `fx-provider::codex` | Implemented |
+| Vercel AI Gateway provider | `fx-provider::vercel` | Implemented |
 | permission policy and automatic review | `fx-core` + ACP host | Implemented |
 | workspace path authority | `fx-workspace` | Implemented |
 | layered configuration | `fx-config` | Implemented for ACP-owned fields |
@@ -16,22 +17,22 @@ ownership inventory is in [source-inventory.md](source-inventory.md).
 | filesystem observation/mutation | `fx-tools` | Implemented, including semantic search |
 | terminal execution and sessions | `fx-process` + private terminal host | Implemented |
 | durable terminal monitors | `fx-process` + private terminal host | Implemented |
-| web search/fetch | `fx-web` + provider capability | Implemented |
-| skills and installation | `fx-skills` | Implemented |
+| web search/fetch | `fx-tools::web` + provider capability | Implemented |
+| skills and installation | `fx-tools::skills` | Implemented |
 | memory and large tool results | `fx-store` | Implemented |
 | durable subagents | `fx-subagent` | Implemented |
 | MCP | `fx-mcp` | stdio and Streamable HTTP implemented |
 | ACP | `fx-acp-host` | ACP v1 stdio vertical slice implemented |
-| TUI/input editor | `fx-tui` | ACP-native full-screen interface implemented |
+| TUI/input editor | `fx-tui` | Full-screen terminal interface implemented |
 | WASM/N-API/standalone SDK | none | Out of scope |
 
 ## Provider status
 
-Codex is the only concrete provider today. The shared abstraction already
-supports simultaneous providers, provider-local model catalogs and defaults,
+Codex and Vercel AI Gateway are concrete providers loaded simultaneously. The
+shared abstraction supports provider-local model catalogs and defaults,
 provider-scoped auth methods, locked refresh, independent gateway construction,
-and per-model capabilities. Direct OpenAI API-key, Anthropic, and other
-providers are future adapters rather than missing changes to core architecture.
+and per-model capabilities. Direct OpenAI API-key and Anthropic providers are
+future adapters rather than missing changes to core architecture.
 
 Codex supports:
 
@@ -44,6 +45,17 @@ Codex supports:
 
 Device-code login and direct OpenAI API-key billing are not implemented in the
 Codex provider.
+
+Vercel supports:
+
+- OIDC discovery and browser device authorization with refresh-token rotation;
+- ambient `VERCEL_OIDC_TOKEN` and `AI_GATEWAY_API_KEY` credentials;
+- deterministic team routing with `FX_VERCEL_TEAM` override;
+- LanguageModel V3 history/function projection and bounded SSE parsing for
+  text, reasoning, tool calls, provider tool results, finish reasons, usage,
+  and generation identity;
+- a network-free startup catalog matching the reference implementation's
+  curated models, extensible through `FX_VERCEL_MODELS`.
 
 ## Preserved invariants
 
@@ -69,10 +81,11 @@ advertisement, owned logout, model persistence, permissions, automatic review,
 tools, skills, search, subagents, cancellation, disconnect cleanup, and
 failure-safe history.
 
-Focused provider tests cover multi-provider registration, credential isolation
-and permissions, corruption rejection, OAuth refresh form/rotation, callback
-state validation, ambient Codex compatibility, request projection, SSE parsing,
-function identity, usage, error classification, and search citations.
+Focused provider tests cover multi-provider registration, nested model routes,
+credential isolation and permissions, corruption rejection, OAuth refresh
+form/rotation, callback/device state validation, ambient credential
+compatibility, both request projections and SSE protocols, function identity,
+usage, error classification, and search citations.
 
 A release-binary live smoke used the existing read-only Codex CLI session and
 `codex/gpt-5.6-sol` to complete ACP initialize, session creation, and one real

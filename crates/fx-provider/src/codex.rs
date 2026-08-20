@@ -11,13 +11,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::prelude::{BASE64_URL_SAFE_NO_PAD, Engine as _};
-use fx_core::{Gateway, SafeRetryGateway};
-use fx_gateway::{CodexGateway, CodexGatewayConfig, codex_endpoint_from_base};
-use fx_provider::{
+use crate::transport::{CodexGateway, CodexGatewayConfig, codex_endpoint_from_base};
+use crate::{
     AuthMethod, Credential, CredentialStore, Model, ModelCapabilities, NativeWebSearch, Provider,
     ProviderError,
 };
+use base64::prelude::{BASE64_URL_SAFE_NO_PAD, Engine as _};
+use fx_core::{Gateway, SafeRetryGateway};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -411,7 +411,7 @@ fn model_catalog() -> Vec<Model> {
         reasoning: true,
         capabilities: ModelCapabilities {
             native_web_search: Some(NativeWebSearch {
-                provider_tool_id: fx_gateway::CODEX_WEB_SEARCH_TOOL_ID.into(),
+                provider_tool_id: crate::transport::CODEX_WEB_SEARCH_TOOL_ID.into(),
             }),
         },
     })
@@ -727,9 +727,40 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
-    use fx_auth::FileCredentialStore;
-    use fx_provider::{CredentialStore, ProviderRegistry};
+    use crate::{CredentialLease, CredentialStore, ProviderRegistry};
+
+    #[derive(Default)]
+    struct MemoryStore(Mutex<Option<Credential>>);
+
+    struct MemoryLease<'a>(std::sync::MutexGuard<'a, Option<Credential>>);
+
+    impl CredentialLease for MemoryLease<'_> {
+        fn credential(&self) -> Option<&Credential> {
+            self.0.as_ref()
+        }
+
+        fn replace(&mut self, credential: Credential) -> Result<(), ProviderError> {
+            *self.0 = Some(credential);
+            Ok(())
+        }
+
+        fn delete(&mut self) -> Result<(), ProviderError> {
+            *self.0 = None;
+            Ok(())
+        }
+    }
+
+    impl CredentialStore for MemoryStore {
+        fn lock<'a>(
+            &'a self,
+            _provider_id: &str,
+        ) -> Result<Box<dyn CredentialLease + 'a>, ProviderError> {
+            Ok(Box::new(MemoryLease(self.0.lock().unwrap())))
+        }
+    }
 
     fn temporary(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -805,8 +836,7 @@ mod tests {
 
     #[test]
     fn owned_valid_oauth_builds_gateway_without_ambient_state() {
-        let root = temporary("owned");
-        let store = FileCredentialStore::new(root.join("credentials"));
+        let store = MemoryStore::default();
         let token = test_jwt("acct_1", now_ms() + 60 * 60 * 1000);
         store
             .lock(PROVIDER_ID)
@@ -824,7 +854,6 @@ mod tests {
                 .gateway(DEFAULT_MODEL, Some("session"), &store)
                 .is_ok()
         );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -848,7 +877,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
         }
-        let store = FileCredentialStore::new(home.join("fx-credentials"));
+        let store = MemoryStore::default();
         let provider = CodexProvider::from_process(Some(home.clone()));
         assert!(provider.gateway(DEFAULT_MODEL, None, &store).is_ok());
         assert!(auth.exists());

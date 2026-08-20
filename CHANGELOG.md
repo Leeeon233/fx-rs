@@ -8,12 +8,22 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Vercel AI Gateway Provider with device OAuth, refresh, team routing,
+  `VERCEL_OIDC_TOKEN`/`AI_GATEWAY_API_KEY` support, LanguageModel V3 streaming,
+  and simultaneous ACP registration alongside Codex.
 - High-performance `fxrs-tui` crate and `fx-tui` companion with streaming
   Markdown, foldable tool/thought cards, permission interactions, prompt
-  queueing, model/mode selectors, durable-session resume, mouse scrolling, and
-  responsive true-color/monochrome rendering.
+  queueing, model/mode selectors, live Slash-command completion,
+  durable-session resume, mouse scrolling, and responsive
+  true-color/monochrome rendering.
 - `fxrs` now opens the TUI by default; `fxrs tui` is the explicit form and
   `fxrs acp` remains the ACP stdio entry point.
+
+### Changed
+
+- Consolidated Codex, Vercel, and their streaming transports into
+  `fxrs-provider`, and consolidated filesystem, web, and skill capabilities
+  into `fxrs-tools`, reducing the crates.io release surface by five packages.
 
 ## [0.0.3] - 2026-08-19
 

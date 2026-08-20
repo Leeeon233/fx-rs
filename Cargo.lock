@@ -966,16 +966,12 @@ dependencies = [
  "fxrs-config",
  "fxrs-context",
  "fxrs-core",
- "fxrs-gateway",
  "fxrs-mcp",
  "fxrs-process",
  "fxrs-provider",
- "fxrs-provider-codex",
- "fxrs-skills",
  "fxrs-store",
  "fxrs-subagent",
  "fxrs-tools",
- "fxrs-web",
  "jiff",
  "pollster",
  "serde_json",
@@ -1026,17 +1022,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fxrs-gateway"
-version = "0.0.4"
-dependencies = [
- "fxrs-core",
- "serde_json",
- "stream-rs",
- "ureq",
- "zeroize",
-]
-
-[[package]]
 name = "fxrs-mcp"
 version = "0.0.4"
 dependencies = [
@@ -1075,47 +1060,19 @@ dependencies = [
 name = "fxrs-provider"
 version = "0.0.4"
 dependencies = [
- "fxrs-core",
- "pollster",
- "serde",
- "thiserror 2.0.20",
- "zeroize",
-]
-
-[[package]]
-name = "fxrs-provider-codex"
-version = "0.0.4"
-dependencies = [
  "base64 0.23.1",
- "fxrs-auth",
  "fxrs-core",
- "fxrs-gateway",
- "fxrs-provider",
  "libc",
  "pollster",
  "serde",
  "serde_json",
  "sha2",
+ "stream-rs",
+ "thiserror 2.0.20",
  "ureq",
  "url",
  "uuid",
  "zeroize",
-]
-
-[[package]]
-name = "fxrs-skills"
-version = "0.0.4"
-dependencies = [
- "fs4",
- "fxrs-core",
- "ignore",
- "libc",
- "pollster",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -1164,15 +1121,25 @@ name = "fxrs-tools"
 version = "0.0.4"
 dependencies = [
  "atomic-write-file",
+ "fs4",
  "fxrs-core",
  "fxrs-workspace",
  "globset",
+ "html2text",
  "ignore",
  "jiff",
+ "libc",
  "memchr",
+ "pollster",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1189,21 +1156,6 @@ dependencies = [
  "tokio",
  "tui-markdown",
  "unicode-width",
-]
-
-[[package]]
-name = "fxrs-web"
-version = "0.0.4"
-dependencies = [
- "fxrs-core",
- "html2text",
- "pollster",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "url",
 ]
 
 [[package]]

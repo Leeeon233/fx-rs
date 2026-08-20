@@ -54,7 +54,7 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliError> 
 
 pub fn render_help() -> String {
     format!(
-        "fxrs v{VERSION}\nFast, ACP-native coding agent for the terminal.\n\nUsage:\n  fxrs [TUI OPTIONS]\n  fxrs tui [TUI OPTIONS]\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  tui       Start the interactive terminal interface (default)\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fxrs version\n"
+        "fxrs v{VERSION}\nFast coding agent for the terminal.\n\nUsage:\n  fxrs [TUI OPTIONS]\n  fxrs tui [TUI OPTIONS]\n  fxrs acp [--model <provider/model>] [--log-file <path>]\n\nCommands:\n  tui       Start the interactive terminal interface (default)\n  acp       Start the ACP server over stdio\n\nFlags:\n  -h, --help       Display this help\n  -v, --version    Print the fxrs version\n"
     )
 }
 

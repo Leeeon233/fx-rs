@@ -25,8 +25,8 @@ use fx_core::{
     ToolResultStore, ToolReview,
 };
 use fx_mcp::{HttpServerConfig, McpConfig, McpRuntime, StdioServerConfig};
+use fx_provider::{CodexProvider, VercelProvider};
 use fx_provider::{CredentialStore, Model, ProviderRegistry};
-use fx_provider_codex::CodexProvider;
 use fx_store::EventLogSessionStore;
 use fx_subagent::{
     ChildRunError, ChildRunRequest, ChildRunResult, SubagentCancellation, SubagentEvent,
@@ -349,6 +349,9 @@ impl HostState {
         providers
             .register(Arc::new(CodexProvider::from_process(home.clone())))
             .expect("built-in Codex provider is valid");
+        providers
+            .register(Arc::new(VercelProvider::from_process()))
+            .expect("built-in Vercel provider is valid");
         Self {
             credentials,
             providers: Arc::new(providers),
@@ -689,13 +692,13 @@ impl HostState {
         ));
         let mut prompt_registry = (*session.registry).clone();
         if let Some(search) = &model_descriptor.capabilities.native_web_search {
-            let search_provider = Arc::new(fx_web::NativeWebSearchProvider::new(
+            let search_provider = Arc::new(fx_tools::web::NativeWebSearchProvider::new(
                 gateway.clone(),
                 model.clone(),
                 search.provider_tool_id.clone(),
             ));
             prompt_registry
-                .register(fx_web::WebSearch::new(search_provider))
+                .register(fx_tools::web::WebSearch::new(search_provider))
                 .map_err(|error| internal(format!("could not register web search: {error}")))?;
         }
         let child_executor: Arc<dyn SubagentExecutor> = Arc::new(AcpChildExecutor {
@@ -986,7 +989,7 @@ async fn build_tool_runtime(
         .map_err(|error| internal(format!("could not register memory tool: {error}")))?;
     fx_process::register_process_tools(&mut registry)
         .map_err(|error| internal(format!("could not register process tools: {error}")))?;
-    let skills = Arc::new(fx_skills::SkillRuntime::discover(workspace, home));
+    let skills = Arc::new(fx_tools::skills::SkillRuntime::discover(workspace, home));
     let skills_prompt = skills.system_prompt_section();
     let system = fx_context::build_system_prompt(workspace, home)
         .map_err(|error| internal(format!("could not load project context: {error}")))?;
@@ -1007,13 +1010,13 @@ async fn build_tool_runtime(
     }
     system_prompt.push_str(&skills_prompt);
     registry
-        .register(fx_skills::SkillTool::from_runtime(skills.clone()))
+        .register(fx_tools::skills::SkillTool::from_runtime(skills.clone()))
         .map_err(|error| internal(format!("could not register skill tool: {error}")))?;
     registry
-        .register(fx_skills::InstallSkillTool::new(skills))
+        .register(fx_tools::skills::InstallSkillTool::new(skills))
         .map_err(|error| internal(format!("could not register skill installer: {error}")))?;
     registry
-        .register(fx_web::WebFetch::default())
+        .register(fx_tools::web::WebFetch::default())
         .map_err(|error| internal(format!("could not register web fetch: {error}")))?;
     let mcp_config = project_mcp_servers(mcp_servers)?;
     let mcp_runtime = fx_mcp::connect_configured(mcp_config, &mut registry)
@@ -1150,13 +1153,13 @@ impl SubagentExecutor for AcpChildExecutor {
                 Arc::new(ThreadedGateway::new(raw_gateway, cancellation.clone()));
             let mut registry = (*executor.base_registry).clone();
             if let Some(search) = &model_descriptor.capabilities.native_web_search {
-                let search_provider = Arc::new(fx_web::NativeWebSearchProvider::new(
+                let search_provider = Arc::new(fx_tools::web::NativeWebSearchProvider::new(
                     gateway.clone(),
                     model.clone(),
                     search.provider_tool_id.clone(),
                 ));
                 registry
-                    .register(fx_web::WebSearch::new(search_provider))
+                    .register(fx_tools::web::WebSearch::new(search_provider))
                     .map_err(|error| ChildRunError::Failed(error.to_string()))?;
             }
             let nested_executor: Arc<dyn SubagentExecutor> = Arc::new(executor.clone());
@@ -2194,7 +2197,8 @@ mod tests {
         assert_eq!(options.len(), 2);
         assert_eq!(options[0].id.0.as_ref(), "model");
         assert_eq!(options[1].id.0.as_ref(), "mode");
-        assert_eq!(models.len(), 7);
+        assert_eq!(models.len(), 34);
+        assert!(state.providers.model("vercel/zai/glm-5.2").is_ok());
         assert!(state.providers.model("unknown/model").is_err());
     }
 

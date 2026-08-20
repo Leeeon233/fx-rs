@@ -1,8 +1,7 @@
-//! Built-in tool implementations for native hosts.
+//! Built-in filesystem, web, and skill tool implementations for native hosts.
 //!
-//! Tool implementations depend only on `fx-core` contracts. The CLI and SDK
-//! choose which tools to register, keeping unused capabilities out of a host's
-//! dependency graph.
+//! The public modules preserve capability-level boundaries without turning
+//! every statically linked tool family into a separately versioned crate.
 
 mod direct_fs;
 mod edit_file;
@@ -13,6 +12,8 @@ mod grep_files;
 mod list_files;
 mod read_file;
 mod semantic_search;
+pub mod skills;
+pub mod web;
 mod write_file;
 
 pub use direct_fs::{CopyFile, CreateFolder, DeleteFile, RenameFile};

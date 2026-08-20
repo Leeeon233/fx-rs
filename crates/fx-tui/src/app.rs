@@ -15,6 +15,80 @@ use tokio::sync::oneshot;
 const MAX_TRANSCRIPT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlashCommand {
+    pub name: &'static str,
+    pub usage: &'static str,
+    pub description: &'static str,
+    pub takes_argument: bool,
+    pub requires_argument: bool,
+}
+
+pub const SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand {
+        name: "help",
+        usage: "/help",
+        description: "Show keyboard shortcuts and commands",
+        takes_argument: false,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "login",
+        usage: "/login [provider]",
+        description: "Authenticate with a provider",
+        takes_argument: true,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "model",
+        usage: "/model [id]",
+        description: "Select the session model",
+        takes_argument: true,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "mode",
+        usage: "/mode [id]",
+        description: "Select ask or code mode",
+        takes_argument: true,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "resume",
+        usage: "/resume <session-id>",
+        description: "Load an existing session",
+        takes_argument: true,
+        requires_argument: true,
+    },
+    SlashCommand {
+        name: "new",
+        usage: "/new",
+        description: "Start a new session",
+        takes_argument: false,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "clear",
+        usage: "/clear",
+        description: "Clear the local transcript",
+        takes_argument: false,
+        requires_argument: false,
+    },
+    SlashCommand {
+        name: "quit",
+        usage: "/quit",
+        description: "Exit fxrs",
+        takes_argument: false,
+        requires_argument: false,
+    },
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandMenu {
+    pub matches: Vec<usize>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Composer,
     Transcript,
@@ -190,6 +264,7 @@ pub struct App {
     pub focus: Focus,
     pub phase: Phase,
     pub overlay: Option<Overlay>,
+    pub command_menu: Option<CommandMenu>,
     pub permission: Option<PendingPermission>,
     pub status: String,
     pub scroll_from_bottom: u32,
@@ -222,6 +297,7 @@ impl App {
             focus: Focus::Composer,
             phase: Phase::Working,
             overlay: None,
+            command_menu: None,
             permission: None,
             status: "Connecting to ACP agent…".into(),
             scroll_from_bottom: 0,
@@ -396,6 +472,7 @@ impl App {
     }
 
     pub fn set_permission(&mut self, permission: PendingPermission) {
+        self.command_menu = None;
         self.permission = Some(permission);
         self.focus = Focus::Composer;
         self.status = "Permission required".into();
@@ -413,6 +490,12 @@ impl App {
         self.composer.lines().join("\n")
     }
 
+    pub fn insert_composer_text(&mut self, text: &str) {
+        self.composer.insert_str(text);
+        self.sync_command_menu();
+        self.dirty = true;
+    }
+
     pub fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
         if event.kind != KeyEventKind::Press && event.kind != KeyEventKind::Repeat {
             return None;
@@ -427,7 +510,34 @@ impl App {
             return self.handle_permission_key(event);
         }
         if self.overlay.is_some() {
+            self.command_menu = None;
             return self.handle_overlay_key(event);
+        }
+
+        if self.focus == Focus::Composer
+            && self.command_menu.is_some()
+            && event.modifiers.is_empty()
+        {
+            match event.code {
+                KeyCode::Up => {
+                    self.select_previous_command();
+                    return None;
+                }
+                KeyCode::Down => {
+                    self.select_next_command();
+                    return None;
+                }
+                KeyCode::Tab => {
+                    self.complete_selected_command();
+                    return None;
+                }
+                KeyCode::Enter => return self.activate_selected_command(),
+                KeyCode::Esc => {
+                    self.command_menu = None;
+                    return None;
+                }
+                _ => {}
+            }
         }
 
         if event.modifiers.contains(KeyModifiers::CONTROL) {
@@ -442,10 +552,12 @@ impl App {
                     return Some(Action::Quit);
                 }
                 KeyCode::Char('p') | KeyCode::Char('?') => {
+                    self.command_menu = None;
                     self.overlay = Some(Overlay::Help);
                     return None;
                 }
                 KeyCode::Char('m') => {
+                    self.command_menu = None;
                     self.open_model_picker();
                     return None;
                 }
@@ -466,6 +578,11 @@ impl App {
                         Focus::Composer => Focus::Transcript,
                         Focus::Transcript => Focus::Composer,
                     };
+                    if self.focus == Focus::Composer {
+                        self.sync_command_menu();
+                    } else {
+                        self.command_menu = None;
+                    }
                 }
                 return None;
             }
@@ -566,6 +683,7 @@ impl App {
                 return None;
             }
             self.composer = TextArea::default();
+            self.command_menu = None;
             if matches!(self.phase, Phase::Running | Phase::Cancelling) {
                 self.queued.push_back(prompt);
                 self.status = format!("Queued · {} waiting", self.queued.len());
@@ -578,7 +696,98 @@ impl App {
             return Some(Action::Submit(prompt));
         }
         let _ = self.composer.input(event);
+        self.sync_command_menu();
         None
+    }
+
+    fn sync_command_menu(&mut self) {
+        if self.phase != Phase::Idle || self.focus != Focus::Composer || self.overlay.is_some() {
+            self.command_menu = None;
+            return;
+        }
+        let prompt = self.composer_text();
+        let Some(query) = prompt.strip_prefix('/') else {
+            self.command_menu = None;
+            return;
+        };
+        if query.chars().any(char::is_whitespace) {
+            self.command_menu = None;
+            return;
+        }
+        let matches = SLASH_COMMANDS
+            .iter()
+            .enumerate()
+            .filter(|(_, command)| command.name.starts_with(query))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            self.command_menu = None;
+            return;
+        }
+        let previous = self.command_menu.as_ref().and_then(|menu| {
+            menu.matches
+                .get(menu.selected)
+                .copied()
+                .filter(|index| matches.contains(index))
+        });
+        let selected = previous
+            .and_then(|index| matches.iter().position(|candidate| *candidate == index))
+            .unwrap_or_default();
+        self.command_menu = Some(CommandMenu { matches, selected });
+    }
+
+    fn select_previous_command(&mut self) {
+        let Some(menu) = &mut self.command_menu else {
+            return;
+        };
+        menu.selected = menu
+            .selected
+            .checked_sub(1)
+            .unwrap_or_else(|| menu.matches.len().saturating_sub(1));
+    }
+
+    fn select_next_command(&mut self) {
+        let Some(menu) = &mut self.command_menu else {
+            return;
+        };
+        if !menu.matches.is_empty() {
+            menu.selected = (menu.selected + 1) % menu.matches.len();
+        }
+    }
+
+    fn selected_command(&self) -> Option<SlashCommand> {
+        let menu = self.command_menu.as_ref()?;
+        let index = *menu.matches.get(menu.selected)?;
+        SLASH_COMMANDS.get(index).copied()
+    }
+
+    fn replace_composer(&mut self, value: &str) {
+        let mut composer = TextArea::default();
+        composer.set_tab_length(4);
+        composer.insert_str(value);
+        self.composer = composer;
+    }
+
+    fn complete_selected_command(&mut self) {
+        let Some(command) = self.selected_command() else {
+            return;
+        };
+        let suffix = if command.takes_argument { " " } else { "" };
+        self.replace_composer(&format!("/{}{suffix}", command.name));
+        self.command_menu = None;
+    }
+
+    fn activate_selected_command(&mut self) -> Option<Action> {
+        let command = self.selected_command()?;
+        if command.requires_argument {
+            self.replace_composer(&format!("/{} ", command.name));
+            self.command_menu = None;
+            return None;
+        }
+        let prompt = format!("/{}", command.name);
+        self.replace_composer("");
+        self.command_menu = None;
+        self.command(&prompt).flatten()
     }
 
     fn handle_transcript_key(&mut self, event: KeyEvent) {
@@ -1194,6 +1403,47 @@ mod tests {
                 .is_none()
         );
         assert_eq!(app.queued.front().map(String::as_str), Some("next task"));
+    }
+
+    #[test]
+    fn slash_menu_filters_navigates_and_completes() {
+        let mut app = App::new(PathBuf::from("/tmp"));
+        app.phase = Phase::Idle;
+        app.insert_composer_text("/");
+        assert_eq!(app.command_menu.as_ref().unwrap().matches.len(), 8);
+
+        app.insert_composer_text("mo");
+        let menu = app.command_menu.as_ref().unwrap();
+        assert_eq!(
+            menu.matches
+                .iter()
+                .map(|index| SLASH_COMMANDS[*index].name)
+                .collect::<Vec<_>>(),
+            ["model", "mode"]
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.composer_text(), "/mode ");
+        assert!(app.command_menu.is_none());
+    }
+
+    #[test]
+    fn slash_menu_runs_complete_commands_and_prompts_for_required_arguments() {
+        let mut app = App::new(PathBuf::from("/tmp"));
+        app.phase = Phase::Idle;
+        app.insert_composer_text("/new");
+        assert!(matches!(
+            app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Some(Action::NewSession)
+        ));
+
+        app.insert_composer_text("/resume");
+        assert!(
+            app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                .is_none()
+        );
+        assert_eq!(app.composer_text(), "/resume ");
+        assert!(app.command_menu.is_none());
     }
 
     #[test]

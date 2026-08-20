@@ -5,17 +5,31 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Filesystem and search tool implementations for fxrs"
+description = "Built-in filesystem, web, and skill tool implementations for fxrs"
 readme.workspace = true
 
 [dependencies]
 atomic-write-file.workspace = true
+fs4.workspace = true
 fx-core.workspace = true
 fx-workspace.workspace = true
 globset = "0.4.16"
+html2text.workspace = true
 ignore = "0.4.23"
 jiff.workspace = true
 memchr = "2.7.4"
+reqwest.workspace = true
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

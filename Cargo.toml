@@ -6,18 +6,14 @@ members = [
     "crates/fx-config",
     "crates/fx-context",
     "crates/fx-core",
-    "crates/fx-gateway",
     "crates/fx-mcp",
     "crates/fx-process",
     "crates/fx-provider",
-    "crates/fx-provider-codex",
-    "crates/fx-skills",
     "crates/fx-store",
     "crates/fx-subagent",
     "crates/fx-terminal-host",
     "crates/fx-tools",
     "crates/fx-tui",
-    "crates/fx-web",
     "crates/fx-workspace",
 ]
 resolver = "3"
@@ -28,7 +24,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/Leeeon233/fx-rs"
-description = "A compact, provider-extensible coding agent with an ACP-native terminal interface"
+description = "A compact, provider-extensible coding agent with a fast terminal interface"
 readme = "README.md"
 
 [workspace.dependencies]
@@ -43,18 +39,14 @@ fx-auth = { package = "fxrs-auth", version = "0.0.4", path = "crates/fx-auth" }
 fx-config = { package = "fxrs-config", version = "0.0.4", path = "crates/fx-config" }
 fx-context = { package = "fxrs-context", version = "0.0.4", path = "crates/fx-context" }
 fx-core = { package = "fxrs-core", version = "0.0.4", path = "crates/fx-core" }
-fx-gateway = { package = "fxrs-gateway", version = "0.0.4", path = "crates/fx-gateway" }
 fx-mcp = { package = "fxrs-mcp", version = "0.0.4", path = "crates/fx-mcp" }
 fx-process = { package = "fxrs-process", version = "0.0.4", path = "crates/fx-process" }
 fx-provider = { package = "fxrs-provider", version = "0.0.4", path = "crates/fx-provider" }
-fx-provider-codex = { package = "fxrs-provider-codex", version = "0.0.4", path = "crates/fx-provider-codex" }
-fx-skills = { package = "fxrs-skills", version = "0.0.4", path = "crates/fx-skills" }
 fx-store = { package = "fxrs-store", version = "0.0.4", path = "crates/fx-store" }
 fx-subagent = { package = "fxrs-subagent", version = "0.0.4", path = "crates/fx-subagent" }
 fx-terminal-host = { package = "fxrs-terminal-host", version = "0.0.4", path = "crates/fx-terminal-host" }
 fx-tools = { package = "fxrs-tools", version = "0.0.4", path = "crates/fx-tools" }
 fx-tui = { package = "fxrs-tui", version = "0.0.4", path = "crates/fx-tui" }
-fx-web = { package = "fxrs-web", version = "0.0.4", path = "crates/fx-web" }
 fx-workspace = { package = "fxrs-workspace", version = "0.0.4", path = "crates/fx-workspace" }
 hex = "0.4.3"
 html2text = { version = "0.17.1", default-features = false }

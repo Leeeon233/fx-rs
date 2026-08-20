@@ -28,20 +28,20 @@ use tokio::sync::{mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const HELP: &str = "fx-tui — ACP-native terminal interface for fxrs
+const HELP: &str = "fx-tui — interactive terminal interface for fxrs
 
 Usage:
   fx-tui [OPTIONS]
 
 Options:
   --cwd <PATH>       Workspace directory (defaults to the current directory)
-  --session <ID>     Resume an existing ACP session
-  --acp-exe <PATH>   ACP agent executable (defaults to sibling fx-acp)
+  --session <ID>     Resume an existing session
+  --acp-exe <PATH>   Agent companion executable (defaults to sibling fx-acp)
   -h, --help         Show this help
   -V, --version      Show version
 
 Environment:
-  FX_ACP_EXE         Override the fx-acp executable path
+  FX_ACP_EXE         Override the agent companion executable path
   NO_COLOR           Disable the true-color theme
 ";
 
@@ -312,8 +312,7 @@ async fn run_connected(
                     }
                     Some(Ok(Event::Resize(_, _))) => app.dirty = true,
                     Some(Ok(Event::Paste(text))) => {
-                        app.composer.insert_str(text);
-                        app.dirty = true;
+                        app.insert_composer_text(&text);
                     }
                     Some(Ok(_)) => {}
                     Some(Err(error)) => return Err(Error::Io(error)),

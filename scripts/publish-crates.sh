@@ -15,15 +15,11 @@ fxrs_packages=(
     fxrs-auth
     fxrs-config
     fxrs-context
-    fxrs-gateway
     fxrs-mcp
     fxrs-process
-    fxrs-skills
     fxrs-store
     fxrs-subagent
     fxrs-tools
-    fxrs-web
-    fxrs-provider-codex
     fxrs-terminal-host
     fxrs-acp-host
     fxrs-tui

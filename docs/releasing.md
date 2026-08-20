@@ -35,13 +35,13 @@ does not support Windows yet.
    `scripts/publish-crates.sh --execute` after `cargo login`, or manually run
    the `Publish crates.io` GitHub workflow with a repository secret named
    `CARGO_REGISTRY_TOKEN`.
-6. Confirm `cargo install fxrs --version 0.0.3 --locked` works from a clean
+6. Confirm `cargo install fxrs --version 0.0.4 --locked` works from a clean
    Cargo home.
 7. Create and push an annotated tag matching the Cargo version:
 
    ```sh
-   git tag -a v0.0.3 -m "fxrs v0.0.3"
-   git push origin v0.0.3
+   git tag -a v0.0.4 -m "fxrs v0.0.4"
+   git push origin v0.0.4
    ```
 
 The tag workflow checks that the tag and Cargo versions match, rebuilds on
@@ -54,6 +54,8 @@ The source directories and Rust import aliases keep their existing `fx-*`
 names. crates.io package names are `fxrs` for the installable product and
 `fxrs-*` for implementation crates. Path dependencies also carry an exact
 workspace version so Cargo can resolve the same dependencies from crates.io.
+Built-in provider adapters and transports ship together in `fxrs-provider`;
+filesystem, web, and skill capabilities ship together in `fxrs-tools`.
 
 Do not publish crates by hand in an arbitrary order. The publish script starts
 with the foundational crates, waits for each version to become visible in the
@@ -64,13 +66,13 @@ registry, and publishes `fxrs` last.
 On Linux:
 
 ```sh
-sha256sum --check fxrs-v0.0.3-x86_64-unknown-linux-gnu.tar.gz.sha256
+sha256sum --check fxrs-v0.0.4-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 
 On macOS:
 
 ```sh
-shasum -a 256 --check fxrs-v0.0.3-aarch64-apple-darwin.tar.gz.sha256
+shasum -a 256 --check fxrs-v0.0.4-aarch64-apple-darwin.tar.gz.sha256
 ```
 
 After extracting, keep `fxrs`, `fx-tui`, `fx-acp`, and `fx-terminal-host`

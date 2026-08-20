@@ -8,7 +8,9 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, Entry, EntryKind, Focus, Overlay, Phase, PickerKind};
+use crate::app::{
+    App, CommandMenu, Entry, EntryKind, Focus, Overlay, Phase, PickerKind, SLASH_COMMANDS,
+};
 use crate::theme::Theme;
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App, theme: Theme) {
@@ -33,6 +35,10 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App, theme: Theme) {
     draw_transcript(frame, layout[1], app, theme);
     draw_composer(frame, layout[2], app, theme);
     draw_status(frame, layout[3], app, theme);
+
+    if let Some(menu) = &app.command_menu {
+        draw_command_menu(frame, layout[1], menu, theme);
+    }
 
     if app
         .permission
@@ -112,7 +118,7 @@ fn draw_transcript(frame: &mut Frame<'_>, area: Rect, app: &mut App, theme: Them
             Line::from(Span::styled("ƒx", Style::new().fg(theme.accent).bold())),
             Line::from(""),
             Line::from(Span::styled(
-                "An ACP-native coding workspace",
+                "A focused coding workspace",
                 Style::new().fg(theme.text).bold(),
             )),
             Line::from(Span::styled(
@@ -232,6 +238,8 @@ fn draw_status(frame: &mut Frame<'_>, area: Rect, app: &App, theme: Theme) {
         .is_some_and(|permission| permission.parked)
     {
         "Tab permission"
+    } else if app.command_menu.is_some() {
+        "↑/↓ select  Tab complete  Enter run  Esc close"
     } else if app.focus == Focus::Transcript {
         "j/k select  ←/→ fold  PgUp/PgDn scroll  Tab compose"
     } else {
@@ -255,6 +263,61 @@ fn draw_status(frame: &mut Frame<'_>, area: Rect, app: &App, theme: Theme) {
             .alignment(Alignment::Right),
         chunks[1],
     );
+}
+
+fn draw_command_menu(frame: &mut Frame<'_>, anchor: Rect, menu: &CommandMenu, theme: Theme) {
+    if menu.matches.is_empty() || anchor.height < 3 {
+        return;
+    }
+    let visible = menu.matches.len().min(5);
+    let height = u16::try_from(visible)
+        .unwrap_or(u16::MAX)
+        .saturating_mul(2)
+        .saturating_add(2)
+        .min(anchor.height);
+    let width = anchor.width.saturating_sub(4).clamp(36, 76);
+    let area = Rect::new(
+        anchor.x.saturating_add(2),
+        anchor.bottom().saturating_sub(height),
+        width.min(anchor.width),
+        height,
+    );
+    frame.render_widget(Clear, area);
+    frame.render_widget(modal_block(" Commands ", theme), area);
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let start = menu.selected.saturating_sub(visible.saturating_sub(1));
+    for (offset, command_index) in menu.matches.iter().skip(start).take(visible).enumerate() {
+        let Some(command) = SLASH_COMMANDS.get(*command_index) else {
+            continue;
+        };
+        let index = start + offset;
+        let y = inner
+            .y
+            .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX).saturating_mul(2));
+        let selected = index == menu.selected;
+        let style = if selected {
+            Style::new().fg(theme.background).bg(theme.accent).bold()
+        } else {
+            Style::new().fg(theme.text).bg(theme.surface)
+        };
+        frame.render_widget(
+            Paragraph::new(format!(
+                " {}  {}",
+                if selected { "›" } else { " " },
+                command.usage
+            ))
+            .style(style),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new(format!("    {}", command.description))
+                .style(Style::new().fg(theme.muted).bg(theme.surface)),
+            Rect::new(inner.x, y.saturating_add(1), inner.width, 1),
+        );
+    }
 }
 
 fn draw_permission(frame: &mut Frame<'_>, area: Rect, app: &mut App, theme: Theme) {
@@ -342,6 +405,7 @@ fn draw_overlay(frame: &mut Frame<'_>, area: Rect, overlay: &Overlay, theme: The
                 Line::from(Span::styled("Prompt", Style::new().fg(theme.accent).bold())),
                 Line::from("Enter send/queue · Shift+Enter newline · Esc cancel"),
                 Line::from("Ctrl+M model · Shift+Tab next mode · Ctrl+P help"),
+                Line::from("Type / for commands · ↑/↓ select · Tab complete"),
                 Line::from(""),
                 Line::from(Span::styled(
                     "Commands",
@@ -619,7 +683,7 @@ mod tests {
         app.phase = Phase::Idle;
         app.status = "Ready".into();
         let screen = rendered(&mut app, 100, 28);
-        assert!(screen.contains("An ACP-native coding workspace"));
+        assert!(screen.contains("A focused coding workspace"));
         assert!(screen.contains("Enter send"));
         assert!(screen.contains("Message"));
     }
@@ -630,6 +694,19 @@ mod tests {
         let screen = rendered(&mut app, 30, 8);
         assert!(screen.lines().count() <= 8);
         assert!(screen.contains("fxrs needs a terminal"));
+    }
+
+    #[test]
+    fn slash_command_menu_is_visible_above_the_composer() {
+        let mut app = App::new(PathBuf::from("/tmp/project"));
+        app.phase = Phase::Idle;
+        app.status = "Ready".into();
+        app.insert_composer_text("/mo");
+        let screen = rendered(&mut app, 100, 28);
+        assert!(screen.contains("Commands"));
+        assert!(screen.contains("/model [id]"));
+        assert!(screen.contains("/mode [id]"));
+        assert!(screen.contains("Tab complete"));
     }
 
     #[test]

@@ -11,19 +11,16 @@ TUI and external editor clients use it.
   context projection, permissions, cancellation, and the agent loop. It does
   no host I/O and selects no async executor.
 - `fx-provider` owns model metadata, generic credential shapes, the `Provider`
-  lifecycle, and a transactional multi-provider registry. A model route such
-  as `codex/gpt-5.6-sol` selects both provider and model.
+  lifecycle, and a transactional multi-provider registry. Its `codex` and
+  `vercel` modules contain the built-in catalogs and authentication flows; a
+  private transport module implements both bounded streaming protocols. A
+  model route such as `codex/gpt-5.6-sol` selects both provider and model.
 - `fx-auth` is a provider-neutral credential store. Each provider has an
   independently locked JSON file; writes are bounded, private, and atomic.
-- `fx-provider-codex` owns the Codex model catalog, ChatGPT OAuth/refresh,
-  read-only Codex CLI credential compatibility, and Codex gateway creation.
-- `fx-gateway` is the minimal OpenAI Responses SSE transport. It projects
-  history/functions/native search, preserves call identity, streams text and
-  reasoning, maps usage and finish reasons, and never retries ambiguous sends.
 - `fx-acp-host` is the composition root built on the official ACP SDK. It
   advertises provider auth/models, owns sessions, and constructs a provider
   gateway lazily for every main or child run.
-- `fx-tui` is an ACP-native frontend built on Ratatui and Crossterm. Its event
+- `fx-tui` is an interactive terminal frontend built on Ratatui and Crossterm. Its event
   loop owns only terminal and protocol I/O; state transitions and rendering
   remain independent. Scrollback is bounded, entry heights are cached, and
   only visible cards are rendered.
@@ -32,8 +29,9 @@ TUI and external editor clients use it.
 - `fx-store` persists schema-v3 sessions as a committed event-log prefix with a
   rebuildable projection and sidecar storage for large tool results.
 - `fx-workspace` is the shared path-authority and symlink-containment boundary.
-- `fx-tools`, `fx-process`, `fx-web`, `fx-skills`, `fx-mcp`, and `fx-subagent`
-  implement opt-in ACP-reachable capability families behind core traits.
+- `fx-tools` contains statically linked filesystem, web, and skill modules.
+  `fx-process`, `fx-mcp`, and `fx-subagent` remain separate because they own an
+  independent process/protocol/lifecycle boundary or have another consumer.
 - `fx-terminal-host` is a private detached companion used only to retain PTYs
   and monitors across ACP client reconstruction. Public invocation is rejected.
 - the `fxrs` package in `crates/fx-cli` is a tiny cold-path dispatcher; it
@@ -68,6 +66,12 @@ read a private `~/.codex/auth.json`; this ambient state is never refreshed,
 rewritten, or deleted by fxrs. ACP `logout` clears all registered providers'
 fxrs-owned files because the ACP v1 logout request has no provider identifier.
 
+The Vercel provider resolves ambient `VERCEL_OIDC_TOKEN` and
+`AI_GATEWAY_API_KEY` before its owned OAuth session. Ambient secrets never
+enter the credential store. OAuth discovers trusted Vercel endpoints, uses the
+device grant, refreshes under the provider lock, and attaches the selected team
+only to Vercel requests.
+
 ## Semantic contracts
 
 `Gateway`, `Tool`, `SessionStore`, `CredentialStore`, `Provider`, approvals,
@@ -77,8 +81,10 @@ Tokio out of core.
 The gateway request carries full provider-neutral history. Codex projection
 separates system instructions, assistant function calls, and function outputs;
 the stable `call_id|item_id` representation round-trips provider identity.
-Responses SSE events are bounded per event and per stream. Only transport
-failures proven to precede delivery are eligible for one semantic retry.
+Vercel projection preserves its nested vendor/model IDs and LanguageModel V3
+tool parts. Both SSE protocols are bounded per event and per stream. Only
+transport failures proven to precede delivery are eligible for one semantic
+retry.
 
 Tool specifications own schema, validation, effect classification, permission
 requests, and execution together. File mutations use an owned
@@ -95,11 +101,15 @@ a failed or cancelled generation retains any visible assistant prefix.
 
 The `fxrs` dispatcher links no TLS, provider, session, terminal, protocol, or
 TUI runtime. `fx-tui` and `fx-acp` are separate companion binaries, so
-help/version and command dispatch retain their minimal cold path. Heavy
-capability families remain separate crates. The release profile
+help/version and command dispatch retain their minimal cold path. Provider and
+built-in tool families use modules inside cohesive crates; this reduces the
+published package surface without changing what the ACP companion links. The
+release profile
 uses `opt-level = "z"`, fat LTO, one codegen unit, stripped symbols, and aborting
-panics. The Codex adapter uses pooled `ureq`/Rustls and `stream-rs` SSE framing
-instead of a full provider SDK or WebSocket stack.
+panics. Both provider adapters use pooled `ureq`/Rustls and `stream-rs` SSE
+framing instead of full provider SDKs or WebSocket stacks. Vercel's startup
+catalog is static and locally extensible, so ACP initialization performs no
+model-catalog request.
 
 On the current Apple Silicon macOS host, release binaries measure 320,832 bytes
 for `fxrs`, 1,454,544 bytes for `fx-tui`, 5,371,760 bytes for `fx-acp`, and

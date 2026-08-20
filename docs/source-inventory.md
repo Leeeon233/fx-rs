@@ -12,13 +12,13 @@ not an architectural target for the Rust rewrite.
 | --- | ---: | ---: | ---: | --- | --- |
 | agent | 40 | 52,895 | 746 | model loop, stream recovery, parallel tool batches, interruption, finalization | `fx-core` orchestration |
 | app | 35 | 64,633 | 865 | native composition, lifecycle, input actions, worker/UI coordination | ACP-reachable composition only |
-| auth | 9 | 7,354 | 104 | API keys, OAuth, login, secret stores | `fx-provider`, `fx-auth`, provider adapters |
+| auth | 9 | 7,354 | 104 | API keys, OAuth, login, secret stores | `fx-provider`, `fx-auth` |
 | background | 10 | 9,219 | 84 | supervised persistent background processes | ACP-reachable process capability; internal diagnostics only otherwise |
 | cli | 6 | 16,107 | 200 | top-level parsing and typed text/JSON snapshots | internal test/diagnostic harness only |
 | config | 10 | 9,175 | 148 | layered settings, capabilities, prompt policy | `fx-config` |
 | execution | 7 | 2,170 | 23 | local/devbox routing and process effects | `fx-process` |
 | gateway core | 5 | 3,014 | 50 | provider ports, catalog metadata, failure diagnostics | `fx-core` contracts |
-| gateway adapter | 7 | 8,216 | 130 | HTTP streaming, usage, web search, JS host adapters | `fx-gateway`, concrete provider crates |
+| gateway adapter | 7 | 8,216 | 130 | HTTP streaming, usage, web search, JS host adapters | built-in modules in `fx-provider` |
 | hooks | 6 | 1,621 | 16 | lifecycle/prompt/tool hook contracts | `fx-core` plus host adapters |
 | hosts | 11 | 2,686 | 40 | native/WASM/keychain/URL host capabilities | native capabilities required by ACP only |
 | images | 2 | 4,368 | 87 | attachment validation, snapshots, commands | `fx-media` candidate |
@@ -29,7 +29,7 @@ not an architectural target for the Rust rewrite.
 | sessions | 39 | 61,715 | 576 | event log, projections, migration/recovery, usage, catalogs | `fx-store` |
 | shared | 17 | 18,014 | 179 | domain types, Unicode/display helpers, diagnostics | split by owning crate |
 | shell command | 3 | 2,689 | 66 | lexical command classification and effects | `fx-process` policy |
-| skills | 4 | 6,082 | 92 | discovery, invocation, commands, trust boundaries | `fx-skills` candidate |
+| skills | 4 | 6,082 | 92 | discovery, invocation, commands, trust boundaries | `fx-tools::skills` |
 | slash commands | 2 | 2,995 | 80 | registry, help, completion, routing | out of scope |
 | subagents | 21 | 53,372 | 338 | durable child identity, authority, communication, manager | `fx-core` plus `fx-store` |
 | terminal host | 16 | 36,209 | 274 | terminal sessions, tmux/native backends, recovery | `fx-terminal` candidate |
