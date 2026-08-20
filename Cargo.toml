@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/fx-acp-host",
+    "crates/fx-runtime",
     "crates/fx-auth",
     "crates/fx-cli",
     "crates/fx-config",
@@ -34,7 +34,6 @@ base64 = "0.23.0"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 fs4 = "1.1.0"
 futures-util = "0.3.31"
-fx-acp-host = { package = "fxrs-acp-host", version = "0.0.6", path = "crates/fx-acp-host" }
 fx-auth = { package = "fxrs-auth", version = "0.0.6", path = "crates/fx-auth" }
 fx-config = { package = "fxrs-config", version = "0.0.6", path = "crates/fx-config" }
 fx-context = { package = "fxrs-context", version = "0.0.6", path = "crates/fx-context" }
@@ -42,6 +41,7 @@ fx-core = { package = "fxrs-core", version = "0.0.6", path = "crates/fx-core" }
 fx-mcp = { package = "fxrs-mcp", version = "0.0.6", path = "crates/fx-mcp" }
 fx-process = { package = "fxrs-process", version = "0.0.6", path = "crates/fx-process" }
 fx-provider = { package = "fxrs-provider", version = "0.0.6", path = "crates/fx-provider" }
+fx-runtime = { package = "fxrs-runtime", version = "0.0.6", path = "crates/fx-runtime" }
 fx-store = { package = "fxrs-store", version = "0.0.6", path = "crates/fx-store" }
 fx-subagent = { package = "fxrs-subagent", version = "0.0.6", path = "crates/fx-subagent" }
 fx-terminal-host = { package = "fxrs-terminal-host", version = "0.0.6", path = "crates/fx-terminal-host" }

@@ -1,7 +1,7 @@
 //! Platform-neutral contracts and orchestration for fx.
 //!
 //! This crate intentionally performs no filesystem, terminal, process, or
-//! network I/O. The ACP composition root and test hosts implement the ports
+//! network I/O. The application runtime and test hosts implement the ports
 //! declared here and share the same agent semantics.
 
 mod agent;

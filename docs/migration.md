@@ -10,9 +10,9 @@ ownership inventory is in [source-inventory.md](source-inventory.md).
 | auth and secret storage | `fx-auth` + provider adapters | Generic store, Codex OAuth, and Vercel device OAuth implemented |
 | Codex Responses provider | `fx-provider::codex` | Implemented |
 | Vercel AI Gateway provider | `fx-provider::vercel` | Implemented |
-| permission policy and automatic review | `fx-core` + ACP host | Implemented |
+| permission policy and automatic review | `fx-core` + `fxrs-runtime` | Implemented |
 | workspace path authority | `fx-workspace` | Implemented |
-| layered configuration | `fx-config` | Implemented for ACP-owned fields |
+| layered configuration | `fx-config` | Implemented for runtime-owned fields |
 | schema-v3 sessions and recovery | `fx-store` | Implemented |
 | filesystem observation/mutation | `fx-tools` | Implemented, including semantic search |
 | terminal execution and sessions | `fx-process` + private terminal host | Implemented |
@@ -22,7 +22,8 @@ ownership inventory is in [source-inventory.md](source-inventory.md).
 | memory and large tool results | `fx-store` | Implemented |
 | durable subagents | `fx-subagent` | Implemented |
 | MCP | `fx-mcp` | stdio and Streamable HTTP implemented |
-| ACP | `fx-acp-host` | ACP v1 stdio vertical slice implemented |
+| agent runtime | `fxrs-runtime` | Protocol-neutral composition and execution implemented |
+| ACP | `fx-cli::acp` | Thin ACP v1 stdio adapter implemented |
 | TUI/input editor | `fx-tui` | Full-screen terminal interface implemented |
 | WASM/N-API/standalone SDK | none | Out of scope |
 

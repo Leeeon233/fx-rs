@@ -1,7 +1,7 @@
 //! Secure, provider-neutral skill discovery and invocation.
 //!
 //! Discovery is intentionally read-only. Installation and repository cloning
-//! are separate capabilities so an ACP host can advertise skills without also
+//! are separate capabilities so a protocol adapter can advertise skills without also
 //! acquiring ambient write or network authority.
 
 mod install;

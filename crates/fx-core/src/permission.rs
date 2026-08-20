@@ -68,7 +68,7 @@ pub enum PermissionDecision {
     Deny,
 }
 
-/// Pure permission policy shared by interactive, noninteractive, and ACP hosts.
+/// Pure permission policy shared by interactive and noninteractive adapters.
 #[derive(Clone, Debug, Default)]
 pub struct PermissionEngine {
     mode: PermissionMode,

@@ -2,7 +2,7 @@
 //!
 //! The manager owns lifecycle, relationship, persistence, and explicit
 //! inspection semantics. Model execution remains behind [`SubagentExecutor`]
-//! so provider/auth selection stays in the ACP composition root.
+//! so provider/auth selection stays in the application runtime.
 
 mod domain;
 mod store;

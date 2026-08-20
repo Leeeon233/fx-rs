@@ -21,7 +21,7 @@ fxrs_packages=(
     fxrs-subagent
     fxrs-tools
     fxrs-terminal-host
-    fxrs-acp-host
+    fxrs-runtime
     fxrs-tui
     fxrs
 )

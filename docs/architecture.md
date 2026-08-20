@@ -17,9 +17,13 @@ TUI and external editor clients use it.
   model route such as `codex/gpt-5.6-sol` selects both provider and model.
 - `fx-auth` is a provider-neutral credential store. Each provider has an
   independently locked JSON file; writes are bounded, private, and atomic.
-- `fx-acp-host` is the composition root built on the official ACP SDK. It
-  advertises provider auth/models, owns sessions, and constructs a provider
-  gateway lazily for every main or child run.
+- `fxrs-runtime` is the protocol-neutral application service. It composes
+  providers, credentials, sessions, tools, MCP, subagents, permissions, and
+  cancellation, and constructs a provider gateway lazily for each run. Its
+  public API uses domain DTOs and ports and has no ACP dependency.
+- `fx-cli::acp` is a thin transport adapter built on the official ACP SDK. It
+  projects ACP requests into `fxrs-runtime`, forwards domain events, and owns
+  only ACP-specific initialization, notifications, and permission dialogs.
 - `fx-tui` is an interactive terminal frontend built on Ratatui and Crossterm. Its event
   loop owns only terminal and protocol I/O; state transitions and rendering
   remain independent. Scrollback is bounded, entry heights are cached, and
@@ -95,10 +99,12 @@ prepare-review-commit value: approval sees the exact bytes, and commit
 revalidates path binding and preimage before atomic replacement. Provider-run
 tools are marked by provenance and are never dispatched locally.
 
-ACP prompts run outside the SDK's ordered request callback so permission
-responses and cancellation remain dispatchable. Blocking HTTP runs on a named
-worker and relays typed deltas. The user message is committed before delivery;
-a failed or cancelled generation retains any visible assistant prefix.
+The runtime prompt API accepts protocol-neutral approval and event ports. The
+ACP adapter runs prompts outside the SDK's ordered request callback so
+permission responses and cancellation remain dispatchable. Blocking HTTP runs
+on a named runtime worker and relays typed deltas. The user message is committed
+before delivery; a failed or cancelled generation retains any visible assistant
+prefix.
 
 ## Cold-start policy
 

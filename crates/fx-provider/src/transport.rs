@@ -1,7 +1,7 @@
 //! Minimal streaming transports used by the built-in provider implementations.
 //!
 //! This module deliberately keeps a blocking pooled HTTP client outside the
-//! executor-neutral core. The ACP composition root runs it on a worker thread.
+//! executor-neutral core. The application runtime runs it on a worker thread.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;

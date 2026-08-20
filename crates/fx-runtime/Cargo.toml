@@ -1,16 +1,15 @@
 [package]
-name = "fxrs-acp-host"
+name = "fxrs-runtime"
 autobins = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file = "../../LICENSE"
 repository.workspace = true
-description = "ACP stdio host and composition root for fxrs"
+description = "Protocol-neutral agent runtime and composition service for fxrs"
 readme.workspace = true
 
 [dependencies]
-agent-client-protocol.workspace = true
 fx-auth.workspace = true
 fx-config.workspace = true
 fx-context.workspace = true
@@ -24,4 +23,5 @@ fx-tools.workspace = true
 jiff.workspace = true
 pollster.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true

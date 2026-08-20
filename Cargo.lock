@@ -943,38 +943,18 @@ version = "0.0.6"
 dependencies = [
  "agent-client-protocol",
  "base64 0.23.1",
- "fxrs-acp-host",
  "fxrs-auth",
  "fxrs-core",
+ "fxrs-mcp",
  "fxrs-process",
  "fxrs-provider",
+ "fxrs-runtime",
  "fxrs-store",
  "fxrs-terminal-host",
  "fxrs-tui",
  "portable-pty",
  "serde_json",
  "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fxrs-acp-host"
-version = "0.0.6"
-dependencies = [
- "agent-client-protocol",
- "fxrs-auth",
- "fxrs-config",
- "fxrs-context",
- "fxrs-core",
- "fxrs-mcp",
- "fxrs-process",
- "fxrs-provider",
- "fxrs-store",
- "fxrs-subagent",
- "fxrs-tools",
- "jiff",
- "pollster",
- "serde_json",
  "tokio",
 ]
 
@@ -1073,6 +1053,27 @@ dependencies = [
  "url",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "fxrs-runtime"
+version = "0.0.6"
+dependencies = [
+ "fxrs-auth",
+ "fxrs-config",
+ "fxrs-context",
+ "fxrs-core",
+ "fxrs-mcp",
+ "fxrs-process",
+ "fxrs-provider",
+ "fxrs-store",
+ "fxrs-subagent",
+ "fxrs-tools",
+ "jiff",
+ "pollster",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]

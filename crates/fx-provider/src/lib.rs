@@ -166,7 +166,7 @@ pub trait Provider: Send + Sync {
     fn auth_methods(&self) -> Vec<AuthMethod>;
 
     /// Performs an interactive authentication method and persists only Fx's
-    /// owned credential. This is called on a blocking worker by the ACP host.
+    /// owned credential. This is called on a blocking worker by the runtime.
     fn authenticate(
         &self,
         method_id: &str,
