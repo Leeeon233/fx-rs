@@ -70,7 +70,9 @@ The Vercel provider resolves ambient `VERCEL_OIDC_TOKEN` and
 `AI_GATEWAY_API_KEY` before its owned OAuth session. Ambient secrets never
 enter the credential store. OAuth discovers trusted Vercel endpoints, uses the
 device grant, refreshes under the provider lock, and attaches the selected team
-only to Vercel requests.
+only to Vercel requests. Model identity stays separate from Gateway provider
+routing: `FX_VERCEL_PROVIDER_ONLY` constrains the allowed providers, while
+`FX_VERCEL_PROVIDER_ORDER` expresses preference with normal fallback.
 
 ## Semantic contracts
 
@@ -82,9 +84,10 @@ The gateway request carries full provider-neutral history. Codex projection
 separates system instructions, assistant function calls, and function outputs;
 the stable `call_id|item_id` representation round-trips provider identity.
 Vercel projection preserves its nested vendor/model IDs and LanguageModel V3
-tool parts. Both SSE protocols are bounded per event and per stream. Only
-transport failures proven to precede delivery are eligible for one semantic
-retry.
+tool parts. Gateway `only`/`order` routing is projected as provider options,
+not encoded into model identity. Both SSE protocols are bounded per event and
+per stream. Only transport failures proven to precede delivery are eligible for
+one semantic retry.
 
 Tool specifications own schema, validation, effect classification, permission
 requests, and execution together. File mutations use an owned

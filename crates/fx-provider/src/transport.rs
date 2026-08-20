@@ -21,6 +21,9 @@ pub const CODEX_WEB_SEARCH_TOOL_ID: &str = "codex.web_search";
 
 const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STREAM_BYTES: usize = 64 * 1024 * 1024;
+const MAX_ERROR_BODY_BYTES: u64 = 64 * 1024;
+const GLM_5_2_MODEL: &str = "zai/glm-5.2";
+const FXRS_USER_AGENT: &str = concat!("fxrs/", env!("CARGO_PKG_VERSION"));
 
 /// Accepts a loopback base for deterministic tests without allowing bearer
 /// credentials to be redirected to arbitrary HTTP servers.
@@ -749,6 +752,20 @@ fn response_error_message(object: &Map<String, Value>) -> String {
 }
 
 /// Configuration for the Vercel AI Gateway LanguageModel V3 transport.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct VercelRoutingPolicy {
+    /// Restricts routing to this set of Gateway provider slugs.
+    pub only: Vec<String>,
+    /// Tries these Gateway provider slugs first, retaining normal fallback.
+    pub order: Vec<String>,
+}
+
+impl VercelRoutingPolicy {
+    pub fn is_empty(&self) -> bool {
+        self.only.is_empty() && self.order.is_empty()
+    }
+}
+
 #[derive(Clone)]
 pub struct VercelGatewayConfig {
     pub endpoint: String,
@@ -756,6 +773,7 @@ pub struct VercelGatewayConfig {
     access_token: Zeroizing<String>,
     pub team_id: Option<String>,
     pub session_id: Option<String>,
+    pub routing: VercelRoutingPolicy,
 }
 
 impl VercelGatewayConfig {
@@ -766,6 +784,7 @@ impl VercelGatewayConfig {
             access_token: Zeroizing::new(access_token.into()),
             team_id: None,
             session_id: None,
+            routing: VercelRoutingPolicy::default(),
         }
     }
 }
@@ -779,6 +798,7 @@ impl std::fmt::Debug for VercelGatewayConfig {
             .field("access_token", &"[redacted]")
             .field("team_id", &self.team_id)
             .field("session_id", &self.session_id)
+            .field("routing", &self.routing)
             .finish()
     }
 }
@@ -792,7 +812,14 @@ impl VercelGateway {
     pub fn new(config: VercelGatewayConfig) -> Self {
         Self {
             config,
-            http: ureq::Agent::new_with_defaults(),
+            // Preserve non-success response bodies. Vercel uses 403 for
+            // routing, entitlement, and team failures as well as auth-related
+            // failures, so collapsing it into ureq::Error::StatusCode would
+            // discard the only useful diagnostic.
+            http: ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .build()
+                .new_agent(),
         }
     }
 }
@@ -807,7 +834,7 @@ impl Gateway for VercelGateway {
             if self.config.access_token.is_empty() {
                 return Err(GatewayError::Authentication);
             }
-            let body = build_vercel_request_body(&request)?;
+            let body = build_vercel_request_body_with_config(&request, &self.config)?;
             let authorization =
                 Zeroizing::new(format!("Bearer {}", self.config.access_token.as_str()));
             let mut builder = self
@@ -822,7 +849,7 @@ impl Gateway for VercelGateway {
                 .header("ai-language-model-specification-version", "4")
                 .header("ai-language-model-id", &self.config.model)
                 .header("ai-language-model-streaming", "true")
-                .header("user-agent", concat!("fxrs/", env!("CARGO_PKG_VERSION")));
+                .header("user-agent", FXRS_USER_AGENT);
             if let Some(team_id) = self
                 .config
                 .team_id
@@ -842,6 +869,16 @@ impl Gateway for VercelGateway {
                     .header("x-session-affinity", session_id);
             }
             let mut response = builder.send(body.as_slice()).map_err(map_send_error)?;
+            let status = response.status().as_u16();
+            if status != 200 {
+                let body = response
+                    .body_mut()
+                    .with_config()
+                    .limit(MAX_ERROR_BODY_BYTES)
+                    .read_to_vec()
+                    .map_err(|_| GatewayError::PossiblySent)?;
+                return Err(vercel_http_status_error(status, &body));
+            }
             consume_vercel_sse(&mut response.body_mut().as_reader(), events)
         })
     }
@@ -849,7 +886,24 @@ impl Gateway for VercelGateway {
 
 /// Projects provider-neutral history into the AI SDK LanguageModel V3 wire
 /// shape accepted by Vercel AI Gateway.
-pub fn build_vercel_request_body(request: &GatewayRequest) -> Result<Vec<u8>, GatewayError> {
+#[cfg(test)]
+fn build_vercel_request_body(request: &GatewayRequest) -> Result<Vec<u8>, GatewayError> {
+    build_vercel_request_body_with_options(request, &VercelRoutingPolicy::default(), None)
+}
+
+fn build_vercel_request_body_with_config(
+    request: &GatewayRequest,
+    config: &VercelGatewayConfig,
+) -> Result<Vec<u8>, GatewayError> {
+    let provider_user_agent = (config.model == GLM_5_2_MODEL).then_some(FXRS_USER_AGENT);
+    build_vercel_request_body_with_options(request, &config.routing, provider_user_agent)
+}
+
+fn build_vercel_request_body_with_options(
+    request: &GatewayRequest,
+    routing: &VercelRoutingPolicy,
+    provider_user_agent: Option<&str>,
+) -> Result<Vec<u8>, GatewayError> {
     let prompt = request
         .messages
         .iter()
@@ -875,6 +929,25 @@ pub fn build_vercel_request_body(request: &GatewayRequest) -> Result<Vec<u8>, Ga
     );
     if let Some(limit) = request.max_output_tokens {
         root.insert("maxOutputTokens".into(), Value::from(limit));
+    }
+    if !routing.is_empty() {
+        let mut gateway = Map::new();
+        if !routing.only.is_empty() {
+            gateway.insert("only".into(), json!(routing.only));
+        }
+        if !routing.order.is_empty() {
+            gateway.insert("order".into(), json!(routing.order));
+        }
+        root.insert(
+            "providerOptions".into(),
+            json!({ "gateway": Value::Object(gateway) }),
+        );
+    }
+    // The reference client sends this body-level header for GLM 5.2 so the
+    // selected upstream provider can identify the calling application. It is
+    // distinct from the HTTP User-Agent consumed by Vercel Gateway itself.
+    if let Some(user_agent) = provider_user_agent {
+        root.insert("headers".into(), json!({ "user-agent": user_agent }));
     }
     serde_json::to_vec(&root)
         .map_err(|error| GatewayError::InvalidResponse(format!("request serialization: {error}")))
@@ -1327,6 +1400,70 @@ fn vercel_error_message(object: &Map<String, Value>) -> String {
     code.map_or_else(|| message.into(), |code| format!("{code}: {message}"))
 }
 
+fn vercel_http_status_error(status: u16, body: &[u8]) -> GatewayError {
+    let detail = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| vercel_http_error_detail(&value))
+        .or_else(|| {
+            std::str::from_utf8(body)
+                .ok()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+        .map(|detail| sanitize_error_detail(&detail));
+    let message = detail.map_or_else(
+        || format!("Vercel Gateway returned HTTP {status}"),
+        |detail| format!("Vercel Gateway returned HTTP {status}: {detail}"),
+    );
+    if status == 401 {
+        GatewayError::Authentication
+    } else {
+        GatewayError::Rejected(message)
+    }
+}
+
+fn vercel_http_error_detail(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    let error = object.get("error");
+    let error_object = error.and_then(Value::as_object);
+    let code = error_object
+        .and_then(|error| error.get("code"))
+        .and_then(Value::as_str)
+        .or_else(|| object.get("code").and_then(Value::as_str));
+    let message = error_object
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .or_else(|| error.and_then(Value::as_str))
+        .or_else(|| object.get("message").and_then(Value::as_str))
+        .or_else(|| object.get("error_description").and_then(Value::as_str));
+    match (code, message) {
+        (Some(code), Some(message)) => Some(format!("{code}: {message}")),
+        (Some(code), None) => Some(code.into()),
+        (None, Some(message)) => Some(message.into()),
+        (None, None) => None,
+    }
+}
+
+fn sanitize_error_detail(detail: &str) -> String {
+    const MAX_CHARS: usize = 1_024;
+    let mut sanitized = detail
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(MAX_CHARS)
+        .collect::<String>();
+    if detail.chars().count() > MAX_CHARS {
+        sanitized.push('…');
+    }
+    sanitized
+}
+
 fn map_send_error(error: ureq::Error) -> GatewayError {
     match error {
         ureq::Error::StatusCode(401 | 403) => GatewayError::Authentication,
@@ -1355,7 +1492,9 @@ fn map_send_error(error: ureq::Error) -> GatewayError {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::io::{Cursor, Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     use fx_core::{CachePolicy, GatewayEvent, ToolAdvertisement, ToolChoice};
 
@@ -1551,6 +1690,80 @@ mod tests {
         assert_eq!(value["tools"][0]["inputSchema"]["type"], "object");
         assert_eq!(value["toolChoice"]["type"], "required");
         assert_eq!(value["maxOutputTokens"], 4096);
+
+        let mut config = VercelGatewayConfig::new(GLM_5_2_MODEL, "secret");
+        config.routing = VercelRoutingPolicy {
+            only: vec!["blackbox".into(), "zai".into()],
+            order: vec!["blackbox".into()],
+        };
+        let routed: Value = serde_json::from_slice(
+            &build_vercel_request_body_with_config(&request, &config).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            routed["providerOptions"]["gateway"]["order"],
+            json!(["blackbox"])
+        );
+        assert_eq!(
+            routed["providerOptions"]["gateway"]["only"],
+            json!(["blackbox", "zai"])
+        );
+        assert_eq!(routed["headers"]["user-agent"], FXRS_USER_AGENT);
+    }
+
+    #[test]
+    fn preserves_vercel_http_failure_details_and_classification() {
+        let forbidden = vercel_http_status_error(
+            403,
+            br#"{"error":{"code":"no_providers_available","message":"blackbox is unavailable"}}"#,
+        );
+        assert!(matches!(
+            forbidden,
+            GatewayError::Rejected(message)
+                if message == "Vercel Gateway returned HTTP 403: no_providers_available: blackbox is unavailable"
+        ));
+
+        let unauthorized = vercel_http_status_error(401, br#"{"message":"token expired"}"#);
+        assert!(matches!(unauthorized, GatewayError::Authentication));
+    }
+
+    #[test]
+    fn vercel_transport_reads_a_forbidden_response_instead_of_misreporting_auth() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!(
+            "http://{}/v3/ai/language-model",
+            listener.local_addr().unwrap()
+        );
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 8 * 1024];
+            let _ = stream.read(&mut request).unwrap();
+            let body = r#"{"error":{"code":"no_providers_available","message":"no provider matched only"}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 403 Forbidden\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let mut config = VercelGatewayConfig::new(GLM_5_2_MODEL, "secret");
+        config.endpoint = endpoint;
+        let gateway = VercelGateway::new(config);
+        let request = GatewayRequest {
+            model: "vercel/zai/glm-5.2".into(),
+            messages: vec![ChatMessage::text(Role::User, "hello")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+            max_output_tokens: Some(1),
+        };
+        let error =
+            pollster::block_on(gateway.complete(request, &mut Events::default())).unwrap_err();
+        assert!(matches!(
+            error,
+            GatewayError::Rejected(message)
+                if message.contains("no_providers_available: no provider matched only")
+        ));
+        server.join().unwrap();
     }
 
     #[test]

@@ -9,11 +9,12 @@ mod transport;
 pub mod vercel;
 
 pub use codex::{CodexProvider, CodexProviderConfig};
+pub use transport::VercelRoutingPolicy;
 pub use vercel::{VercelProvider, VercelProviderConfig};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use fx_core::Gateway;
 use serde::{Deserialize, Serialize};
@@ -172,6 +173,17 @@ pub trait Provider: Send + Sync {
         credentials: &dyn CredentialStore,
     ) -> Result<(), ProviderError>;
 
+    /// Reloads a provider's credential-scoped model catalog. Providers with a
+    /// static catalog can keep the default implementation. Hosts invoke this
+    /// after authentication or once a session is active, never while building
+    /// the startup registry, so cold initialization stays network-free.
+    fn refresh_models(
+        &self,
+        _credentials: &dyn CredentialStore,
+    ) -> Result<Option<Vec<Model>>, ProviderError> {
+        Ok(None)
+    }
+
     /// Removes fxrs-owned authentication state. Ambient state belonging to
     /// another application must never be modified.
     fn logout(&self, credentials: &dyn CredentialStore) -> Result<(), ProviderError> {
@@ -215,12 +227,32 @@ pub enum ProviderError {
     Transport(String),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuthenticationOutcome {
+    pub models_refreshed: bool,
+    /// Authentication remains successful if an optional catalog refresh
+    /// fails. Callers may surface this warning without asking users to log in
+    /// again; the registry keeps its previous catalog unchanged.
+    pub catalog_warning: Option<String>,
+}
+
+#[derive(Default)]
 pub struct ProviderRegistry {
     providers: BTreeMap<String, Arc<dyn Provider>>,
-    models: BTreeMap<String, Model>,
+    models: Arc<RwLock<BTreeMap<String, Model>>>,
     auth_methods: BTreeMap<String, RegisteredAuthMethod>,
     default_model_route: Option<String>,
+}
+
+impl Clone for ProviderRegistry {
+    fn clone(&self) -> Self {
+        Self {
+            providers: self.providers.clone(),
+            models: Arc::new(RwLock::new(read_models(&self.models).clone())),
+            auth_methods: self.auth_methods.clone(),
+            default_model_route: self.default_model_route.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -254,7 +286,7 @@ impl ProviderRegistry {
                 )));
             }
             let route = model.route();
-            if self.models.contains_key(&route) || !seen_models.insert(route.clone()) {
+            if !seen_models.insert(route.clone()) {
                 return Err(ProviderError::DuplicateModel(route));
             }
             models.push((route, model));
@@ -295,7 +327,16 @@ impl ProviderRegistry {
             ));
         }
 
-        self.models.extend(models);
+        {
+            let mut registered = write_models(&self.models);
+            if let Some((route, _)) = models
+                .iter()
+                .find(|(route, _)| registered.contains_key(route))
+            {
+                return Err(ProviderError::DuplicateModel(route.clone()));
+            }
+            registered.extend(models);
+        }
         self.auth_methods.extend(methods);
         if self.default_model_route.is_none() {
             self.default_model_route = Some(default_route);
@@ -305,16 +346,17 @@ impl ProviderRegistry {
     }
 
     pub fn models(&self) -> Vec<Model> {
-        self.models.values().cloned().collect()
+        read_models(&self.models).values().cloned().collect()
     }
 
-    pub fn model(&self, route: &str) -> Result<&Model, ProviderError> {
-        self.models
+    pub fn model(&self, route: &str) -> Result<Model, ProviderError> {
+        read_models(&self.models)
             .get(route)
+            .cloned()
             .ok_or_else(|| ProviderError::UnknownModel(route.into()))
     }
 
-    pub fn default_model(&self) -> Result<&Model, ProviderError> {
+    pub fn default_model(&self) -> Result<Model, ProviderError> {
         let route = self
             .default_model_route
             .as_deref()
@@ -333,12 +375,119 @@ impl ProviderRegistry {
         &self,
         method_id: &str,
         credentials: &dyn CredentialStore,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<AuthenticationOutcome, ProviderError> {
         let method = self
             .auth_methods
             .get(method_id)
             .ok_or_else(|| ProviderError::UnknownAuthMethod(method_id.into()))?;
-        self.providers[&method.provider_id].authenticate(&method.local_id, credentials)
+        let provider = &self.providers[&method.provider_id];
+        provider.authenticate(&method.local_id, credentials)?;
+
+        Ok(self.refresh_provider_catalog(&method.provider_id, credentials))
+    }
+
+    /// Refreshes every provider that exposes a credential-scoped catalog.
+    /// Individual failures do not discard successful updates or the previous
+    /// catalog of the failed provider.
+    pub fn refresh_models(&self, credentials: &dyn CredentialStore) -> AuthenticationOutcome {
+        let mut outcome = AuthenticationOutcome::default();
+        let mut warnings = Vec::new();
+        for provider_id in self.providers.keys() {
+            let refreshed = self.refresh_provider_catalog(provider_id, credentials);
+            outcome.models_refreshed |= refreshed.models_refreshed;
+            if let Some(warning) = refreshed.catalog_warning {
+                warnings.push(format!("{provider_id}: {warning}"));
+            }
+        }
+        if !warnings.is_empty() {
+            outcome.catalog_warning = Some(warnings.join("; "));
+        }
+        outcome
+    }
+
+    fn refresh_provider_catalog(
+        &self,
+        provider_id: &str,
+        credentials: &dyn CredentialStore,
+    ) -> AuthenticationOutcome {
+        let provider = &self.providers[provider_id];
+        match provider.refresh_models(credentials) {
+            Ok(Some(models)) => match self.replace_provider_models(provider_id, models) {
+                Ok(models_refreshed) => AuthenticationOutcome {
+                    models_refreshed,
+                    catalog_warning: None,
+                },
+                Err(error) => AuthenticationOutcome {
+                    models_refreshed: false,
+                    catalog_warning: Some(error.to_string()),
+                },
+            },
+            Ok(None) => AuthenticationOutcome::default(),
+            Err(error) => AuthenticationOutcome {
+                models_refreshed: false,
+                catalog_warning: Some(error.to_string()),
+            },
+        }
+    }
+
+    /// Atomically replaces one provider's catalog after validating the full
+    /// candidate set. Other providers remain visible throughout the update.
+    pub fn replace_provider_models(
+        &self,
+        provider_id: &str,
+        models: Vec<Model>,
+    ) -> Result<bool, ProviderError> {
+        let provider = self
+            .providers
+            .get(provider_id)
+            .ok_or_else(|| ProviderError::UnknownProvider(provider_id.into()))?;
+        let mut replacement = BTreeMap::new();
+        for model in models {
+            validate_model_id(&model.id)?;
+            if model.provider_id != provider_id {
+                return Err(ProviderError::Configuration(format!(
+                    "model `{}` declares provider `{}` instead of `{provider_id}`",
+                    model.id, model.provider_id
+                )));
+            }
+            let route = model.route();
+            if replacement.insert(route.clone(), model).is_some() {
+                return Err(ProviderError::DuplicateModel(route));
+            }
+        }
+        if replacement.is_empty() {
+            return Err(ProviderError::Configuration(format!(
+                "provider `{provider_id}` has no models"
+            )));
+        }
+        let default_route = format!("{provider_id}/{}", provider.default_model());
+        if !replacement.contains_key(&default_route) {
+            return Err(ProviderError::Configuration(format!(
+                "provider `{provider_id}` default model `{}` is not in its refreshed catalog",
+                provider.default_model()
+            )));
+        }
+
+        let mut registered = write_models(&self.models);
+        for route in replacement.keys() {
+            if registered
+                .get(route)
+                .is_some_and(|model| model.provider_id != provider_id)
+            {
+                return Err(ProviderError::DuplicateModel(route.clone()));
+            }
+        }
+        let mut updated = registered
+            .iter()
+            .filter(|(_, model)| model.provider_id != provider_id)
+            .map(|(route, model)| (route.clone(), model.clone()))
+            .collect::<BTreeMap<_, _>>();
+        updated.extend(replacement);
+        if *registered == updated {
+            return Ok(false);
+        }
+        *registered = updated;
+        Ok(true)
     }
 
     pub fn logout_all(&self, credentials: &dyn CredentialStore) -> Result<(), ProviderError> {
@@ -371,13 +520,35 @@ impl fmt::Debug for ProviderRegistry {
         formatter
             .debug_struct("ProviderRegistry")
             .field("providers", &self.providers.keys().collect::<Vec<_>>())
-            .field("models", &self.models.keys().collect::<Vec<_>>())
+            .field(
+                "models",
+                &read_models(&self.models)
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
             .field(
                 "auth_methods",
                 &self.auth_methods.keys().collect::<Vec<_>>(),
             )
             .finish()
     }
+}
+
+fn read_models(
+    models: &RwLock<BTreeMap<String, Model>>,
+) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, Model>> {
+    models
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn write_models(
+    models: &RwLock<BTreeMap<String, Model>>,
+) -> std::sync::RwLockWriteGuard<'_, BTreeMap<String, Model>> {
+    models
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn auth_route(provider_id: &str, method_id: &str) -> String {
@@ -513,6 +684,69 @@ mod tests {
         }
     }
 
+    struct RefreshingProvider;
+
+    impl Provider for RefreshingProvider {
+        fn id(&self) -> &str {
+            "dynamic"
+        }
+
+        fn name(&self) -> &str {
+            "Dynamic"
+        }
+
+        fn models(&self) -> Vec<Model> {
+            vec![test_model("dynamic", "model")]
+        }
+
+        fn default_model(&self) -> &str {
+            "model"
+        }
+
+        fn auth_methods(&self) -> Vec<AuthMethod> {
+            vec![AuthMethod::new("login", "Login", "Login")]
+        }
+
+        fn authenticate(
+            &self,
+            _method_id: &str,
+            _credentials: &dyn CredentialStore,
+        ) -> Result<(), ProviderError> {
+            Ok(())
+        }
+
+        fn refresh_models(
+            &self,
+            _credentials: &dyn CredentialStore,
+        ) -> Result<Option<Vec<Model>>, ProviderError> {
+            Ok(Some(vec![
+                test_model("dynamic", "model"),
+                test_model("dynamic", "new/model"),
+            ]))
+        }
+
+        fn gateway(
+            &self,
+            _model_id: &str,
+            _session_id: Option<&str>,
+            _credentials: &dyn CredentialStore,
+        ) -> Result<Arc<dyn Gateway>, ProviderError> {
+            Ok(Arc::new(EmptyGateway))
+        }
+    }
+
+    fn test_model(provider_id: &str, id: &str) -> Model {
+        Model {
+            provider_id: provider_id.into(),
+            id: id.into(),
+            name: id.into(),
+            context_window: 1,
+            max_output_tokens: 1,
+            reasoning: false,
+            capabilities: ModelCapabilities::default(),
+        }
+    }
+
     #[test]
     fn registry_routes_multiple_providers_without_global_state() {
         let mut registry = ProviderRegistry::new();
@@ -547,6 +781,29 @@ mod tests {
         registry.register(Arc::new(TestProvider("alpha"))).unwrap();
         assert!(registry.register(Arc::new(TestProvider("alpha"))).is_err());
         assert_eq!(registry.models().len(), 1);
+    }
+
+    #[test]
+    fn authentication_atomically_refreshes_only_its_provider_models() {
+        let mut registry = ProviderRegistry::new();
+        registry.register(Arc::new(TestProvider("stable"))).unwrap();
+        registry.register(Arc::new(RefreshingProvider)).unwrap();
+
+        let outcome = registry
+            .authenticate("dynamic:login", &MemoryStore::default())
+            .unwrap();
+        assert!(outcome.models_refreshed);
+        assert!(outcome.catalog_warning.is_none());
+        assert!(registry.model("dynamic/new/model").is_ok());
+        assert!(registry.model("stable/model").is_ok());
+
+        let before = registry.models();
+        assert!(
+            registry
+                .replace_provider_models("dynamic", vec![test_model("other", "model")])
+                .is_err()
+        );
+        assert_eq!(registry.models(), before);
     }
 
     struct NestedModelProvider;

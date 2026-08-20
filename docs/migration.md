@@ -51,6 +51,8 @@ Vercel supports:
 - OIDC discovery and browser device authorization with refresh-token rotation;
 - ambient `VERCEL_OIDC_TOKEN` and `AI_GATEWAY_API_KEY` credentials;
 - deterministic team routing with `FX_VERCEL_TEAM` override;
+- provider routing through `FX_VERCEL_PROVIDER_ONLY` and
+  `FX_VERCEL_PROVIDER_ORDER`, independent from model IDs;
 - LanguageModel V3 history/function projection and bounded SSE parsing for
   text, reasoning, tool calls, provider tool results, finish reasons, usage,
   and generation identity;

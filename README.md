@@ -105,7 +105,21 @@ fxrs-owned Vercel OAuth session. Set `FX_VERCEL_TEAM` to a team ID (or a slug
 during OAuth login); otherwise OAuth selects the first team returned by
 Vercel. `FX_VERCEL_MODELS` can add comma-separated Gateway model IDs to the
 built-in cold-start catalog without performing network I/O during ACP
-initialization.
+initialization. Provider routing is configured independently from the model:
+
+```sh
+# Prefer Blackbox, then let Vercel Gateway fall back normally.
+FX_VERCEL_PROVIDER_ORDER=blackbox \
+  fxrs acp --model vercel/zai/glm-5.2
+
+# Require Blackbox and fail instead of falling back.
+FX_VERCEL_PROVIDER_ONLY=blackbox \
+  fxrs acp --model vercel/zai/glm-5.2
+```
+
+Both routing variables accept comma-separated provider slugs and can be used
+together. A provider prefix such as `blackbox/zai/glm-5.2` is not a distinct
+catalog model in fxrs; use `vercel/zai/glm-5.2` plus the routing policy above.
 
 In the TUI, run `/login` to invoke the advertised authentication method; when
 multiple providers advertise methods, fxrs opens a provider picker.

@@ -4,13 +4,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::transport::{VercelGateway, VercelGatewayConfig, vercel_endpoint_from_base};
 use crate::{
     AuthMethod, Credential, CredentialStore, Model, ModelCapabilities, Provider, ProviderError,
+    VercelRoutingPolicy,
 };
 use fx_core::{Gateway, SafeRetryGateway};
 use serde::Deserialize;
@@ -29,7 +30,9 @@ const OAUTH_SCOPE: &str = "openid offline_access";
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const REFRESH_SKEW_MS: i64 = 60 * 1000;
 const MAX_OAUTH_BODY_BYTES: u64 = 64 * 1024;
+const MAX_CATALOG_BODY_BYTES: u64 = 2 * 1024 * 1024;
 const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const DEFAULT_CATALOG_ENDPOINT: &str = "https://ai-gateway.vercel.sh/coding-agent/v1/models";
 
 const ISSUER_ATTRIBUTE: &str = "issuer";
 const CLIENT_ID_ATTRIBUTE: &str = "client_id";
@@ -43,6 +46,7 @@ pub struct VercelProviderConfig {
     pub issuer: String,
     pub client_id: String,
     pub gateway_endpoint: String,
+    pub catalog_endpoint: String,
     pub teams_endpoint: String,
     pub team: Option<String>,
     pub open_browser: bool,
@@ -51,6 +55,10 @@ pub struct VercelProviderConfig {
     /// catalog request. This preserves cold start while allowing newly added
     /// Gateway models to be selected immediately.
     pub additional_models: Vec<String>,
+    /// Optional provider routing independent of model identity. `only`
+    /// disables fallback outside the allow-list; `order` only changes
+    /// preference and keeps Gateway fallback behavior.
+    pub routing: VercelRoutingPolicy,
 }
 
 impl VercelProviderConfig {
@@ -73,6 +81,9 @@ impl VercelProviderConfig {
             gateway_endpoint: vercel_endpoint_from_base(
                 std::env::var("FX_GATEWAY_BASE_URL").ok().as_deref(),
             ),
+            catalog_endpoint: vercel_catalog_endpoint_from_base(
+                std::env::var("FX_GATEWAY_BASE_URL").ok().as_deref(),
+            ),
             teams_endpoint,
             team: std::env::var("FX_VERCEL_TEAM")
                 .ok()
@@ -82,6 +93,14 @@ impl VercelProviderConfig {
             additional_models: parse_additional_models(
                 std::env::var("FX_VERCEL_MODELS").ok().as_deref(),
             ),
+            routing: VercelRoutingPolicy {
+                only: parse_provider_routes(
+                    std::env::var("FX_VERCEL_PROVIDER_ONLY").ok().as_deref(),
+                ),
+                order: parse_provider_routes(
+                    std::env::var("FX_VERCEL_PROVIDER_ORDER").ok().as_deref(),
+                ),
+            },
         }
     }
 }
@@ -90,6 +109,7 @@ impl VercelProviderConfig {
 pub struct VercelProvider {
     config: VercelProviderConfig,
     models: Vec<Model>,
+    accepted_model_ids: Arc<RwLock<BTreeSet<String>>>,
     http: ureq::Agent,
 }
 
@@ -98,8 +118,13 @@ impl VercelProvider {
         validate_issuer(&config.issuer)?;
         validate_client_id(&config.client_id)?;
         validate_trusted_endpoint(&config.gateway_endpoint, EndpointKind::Gateway)?;
+        validate_trusted_endpoint(&config.catalog_endpoint, EndpointKind::Gateway)?;
         validate_trusted_endpoint(&config.teams_endpoint, EndpointKind::VercelApi)?;
+        validate_routing_policy(&config.routing)?;
         let models = model_catalog(&config.additional_models)?;
+        let accepted_model_ids = Arc::new(RwLock::new(
+            models.iter().map(|model| model.id.clone()).collect(),
+        ));
         let http = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .build()
@@ -107,6 +132,7 @@ impl VercelProvider {
         Ok(Self {
             config,
             models,
+            accepted_model_ids,
             http,
         })
     }
@@ -116,11 +142,11 @@ impl VercelProvider {
             .expect("built-in Vercel provider configuration is valid")
     }
 
-    fn model(&self, id: &str) -> Result<&Model, ProviderError> {
-        self.models
-            .iter()
-            .find(|model| model.id == id)
-            .ok_or_else(|| ProviderError::UnknownModel(format!("{PROVIDER_ID}/{id}")))
+    fn accepts_model(&self, id: &str) -> bool {
+        self.accepted_model_ids
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(id)
     }
 
     fn resolve_auth(
@@ -131,12 +157,14 @@ impl VercelProvider {
             return Ok(ResolvedVercelAuth {
                 access_token: Zeroizing::new(token),
                 team_id: self.config.team.clone(),
+                source: VercelCredentialSource::ApiKey,
             });
         }
         if let Some(token) = nonempty_env("AI_GATEWAY_API_KEY") {
             return Ok(ResolvedVercelAuth {
                 access_token: Zeroizing::new(token),
                 team_id: self.config.team.clone(),
+                source: VercelCredentialSource::ApiKey,
             });
         }
 
@@ -151,6 +179,7 @@ impl VercelProvider {
             Credential::ApiKey { secret, attributes } => Ok(ResolvedVercelAuth {
                 access_token: Zeroizing::new(secret.clone()),
                 team_id: configured_or_stored_team(&self.config, attributes),
+                source: VercelCredentialSource::ApiKey,
             }),
             Credential::OAuth {
                 access_token,
@@ -163,6 +192,7 @@ impl VercelProvider {
                     return Ok(ResolvedVercelAuth {
                         access_token: Zeroizing::new(access_token.clone()),
                         team_id,
+                        source: VercelCredentialSource::FxLogin,
                     });
                 }
                 let refresh_token = refresh_token.as_deref().ok_or_else(|| {
@@ -191,6 +221,7 @@ impl VercelProvider {
                 let resolved = ResolvedVercelAuth {
                     access_token: Zeroizing::new(token.access_token.clone()),
                     team_id: team_id.clone(),
+                    source: VercelCredentialSource::FxLogin,
                 };
                 let team = TeamSelection {
                     id: team_id,
@@ -377,6 +408,92 @@ impl VercelProvider {
             .collect())
     }
 
+    fn fetch_model_catalog(
+        &self,
+        auth: Option<&ResolvedVercelAuth>,
+    ) -> Result<(u16, Zeroizing<Vec<u8>>), ProviderError> {
+        let mut url = Url::parse(&self.config.catalog_endpoint).map_err(|error| {
+            ProviderError::Configuration(format!("invalid Vercel catalog endpoint: {error}"))
+        })?;
+        if let Some(ResolvedVercelAuth {
+            source: VercelCredentialSource::FxLogin,
+            team_id: Some(team_id),
+            ..
+        }) = auth
+        {
+            url.query_pairs_mut().append_pair("teamId", team_id);
+        }
+
+        let mut request = self
+            .http
+            .get(url.as_str())
+            .header("accept", "application/json")
+            .header("user-agent", concat!("fxrs/", env!("CARGO_PKG_VERSION")));
+        if let Some(auth) = auth {
+            let authorization = Zeroizing::new(format!("Bearer {}", auth.access_token.as_str()));
+            request = request.header("authorization", authorization.as_str());
+            if auth.source == VercelCredentialSource::ApiKey
+                && let Some(team_id) = auth.team_id.as_deref()
+            {
+                request = request.header("x-vercel-ai-gateway-team", team_id);
+            }
+            let mut response = request.call().map_err(|error| {
+                ProviderError::Transport(format!("Vercel model catalog request failed: {error}"))
+            })?;
+            let status = response.status().as_u16();
+            let bytes = read_bounded_response_with_limit(
+                &mut response,
+                "Vercel model catalog response",
+                MAX_CATALOG_BODY_BYTES,
+            )?;
+            return Ok((status, bytes));
+        }
+
+        let mut response = request.call().map_err(|error| {
+            ProviderError::Transport(format!(
+                "Vercel public model catalog request failed: {error}"
+            ))
+        })?;
+        let status = response.status().as_u16();
+        let bytes = read_bounded_response_with_limit(
+            &mut response,
+            "Vercel public model catalog response",
+            MAX_CATALOG_BODY_BYTES,
+        )?;
+        Ok((status, bytes))
+    }
+
+    fn load_model_catalog(
+        &self,
+        credentials: &dyn CredentialStore,
+    ) -> Result<Vec<Model>, ProviderError> {
+        let auth = self.resolve_auth(credentials)?;
+        // An fx login without a selected team cannot address its private
+        // catalog. This mirrors the Zig implementation's public-only access.
+        let authenticated =
+            !(auth.source == VercelCredentialSource::FxLogin && auth.team_id.is_none());
+        let (status, bytes) = self.fetch_model_catalog(authenticated.then_some(&auth))?;
+        let bytes = if authenticated && matches!(status, 401 | 403) {
+            let (fallback_status, fallback) = self.fetch_model_catalog(None)?;
+            if fallback_status != 200 {
+                return Err(catalog_status_error(fallback_status));
+            }
+            fallback
+        } else {
+            if status != 200 {
+                return Err(catalog_status_error(status));
+            }
+            bytes
+        };
+        let models = parse_model_catalog(&bytes, &self.config.additional_models)?;
+        if !models.iter().any(|model| model.id == DEFAULT_MODEL) {
+            return Err(ProviderError::Transport(format!(
+                "Vercel model catalog omitted the default model `{DEFAULT_MODEL}`"
+            )));
+        }
+        Ok(models)
+    }
+
     fn get_bounded(
         &self,
         endpoint: &str,
@@ -449,18 +566,35 @@ impl Provider for VercelProvider {
         credentials.lock(PROVIDER_ID)?.replace(credential)
     }
 
+    fn refresh_models(
+        &self,
+        credentials: &dyn CredentialStore,
+    ) -> Result<Option<Vec<Model>>, ProviderError> {
+        let models = self.load_model_catalog(credentials)?;
+        self.accepted_model_ids
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(models.iter().map(|model| model.id.clone()));
+        Ok(Some(models))
+    }
+
     fn gateway(
         &self,
         model_id: &str,
         session_id: Option<&str>,
         credentials: &dyn CredentialStore,
     ) -> Result<Arc<dyn Gateway>, ProviderError> {
-        self.model(model_id)?;
+        if !self.accepts_model(model_id) {
+            return Err(ProviderError::UnknownModel(format!(
+                "{PROVIDER_ID}/{model_id}"
+            )));
+        }
         let auth = self.resolve_auth(credentials)?;
         let mut config = VercelGatewayConfig::new(model_id, auth.access_token.as_str());
         config.endpoint = self.config.gateway_endpoint.clone();
         config.team_id = auth.team_id;
         config.session_id = session_id.map(str::to_owned);
+        config.routing = self.config.routing.clone();
         Ok(Arc::new(SafeRetryGateway::new(Arc::new(
             VercelGateway::new(config),
         ))))
@@ -510,9 +644,9 @@ fn model_catalog(additional: &[String]) -> Result<Vec<Model>, ProviderError> {
                 provider_id: PROVIDER_ID.into(),
                 name: id.clone(),
                 id,
-                // Static values are deliberately conservative. Live catalog
-                // lookup remains outside startup and can become a registry
-                // refresh concern without changing this Provider contract.
+                // Static values are deliberately conservative. The live
+                // credential-scoped catalog replaces them after a session is
+                // active without adding network I/O to registry construction.
                 context_window: 128_000,
                 max_output_tokens: 32_000,
                 reasoning: true,
@@ -520,6 +654,114 @@ fn model_catalog(additional: &[String]) -> Result<Vec<Model>, ProviderError> {
             })
         })
         .collect()
+}
+
+fn parse_model_catalog(bytes: &[u8], additional: &[String]) -> Result<Vec<Model>, ProviderError> {
+    let document: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| {
+        ProviderError::Transport("Vercel model catalog response was invalid JSON".into())
+    })?;
+    let entries = document
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            ProviderError::Transport("Vercel model catalog response omitted `data`".into())
+        })?;
+    let mut seen = BTreeSet::new();
+    let mut models = entries
+        .iter()
+        .filter_map(parse_model_catalog_entry)
+        .filter(|model| seen.insert(model.id.clone()))
+        .collect::<Vec<_>>();
+    for id in additional {
+        if seen.contains(id) {
+            continue;
+        }
+        validate_model_id(id)?;
+        seen.insert(id.clone());
+        models.push(Model {
+            provider_id: PROVIDER_ID.into(),
+            id: id.clone(),
+            name: id.clone(),
+            context_window: 128_000,
+            max_output_tokens: 32_000,
+            reasoning: true,
+            capabilities: ModelCapabilities::default(),
+        });
+    }
+    if models.is_empty() {
+        return Err(ProviderError::Transport(
+            "Vercel model catalog contained no language models".into(),
+        ));
+    }
+    Ok(models)
+}
+
+fn parse_model_catalog_entry(value: &serde_json::Value) -> Option<Model> {
+    let object = value.as_object()?;
+    if object
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|kind| !kind.eq_ignore_ascii_case("language"))
+    {
+        return None;
+    }
+    let id = object.get("id")?.as_str()?;
+    if validate_model_id(id).is_err() {
+        return None;
+    }
+    let name = object
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id);
+    let tags = object
+        .get("tags")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    let reasoning = tags.iter().any(|tag| tag.eq_ignore_ascii_case("reasoning"))
+        || object
+            .get("reasoning_options")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.get("type").and_then(serde_json::Value::as_str) == Some("effort")
+                })
+            });
+    Some(Model {
+        provider_id: PROVIDER_ID.into(),
+        id: id.into(),
+        name: name.into(),
+        context_window: catalog_u32(object.get("context_window")).unwrap_or(128_000),
+        max_output_tokens: catalog_u32(object.get("max_tokens")).unwrap_or(32_000),
+        reasoning,
+        capabilities: ModelCapabilities::default(),
+    })
+}
+
+fn catalog_u32(value: Option<&serde_json::Value>) -> Option<u32> {
+    value?.as_u64().and_then(|value| u32::try_from(value).ok())
+}
+
+fn catalog_status_error(status: u16) -> ProviderError {
+    ProviderError::Transport(format!(
+        "Vercel model catalog request returned HTTP {status}"
+    ))
+}
+
+fn vercel_catalog_endpoint_from_base(base: Option<&str>) -> String {
+    let Some(base) = base else {
+        return DEFAULT_CATALOG_ENDPOINT.into();
+    };
+    let normalized = base.trim_end_matches('/');
+    if is_loopback_origin(normalized) {
+        format!("{normalized}/coding-agent/v1/models")
+    } else {
+        DEFAULT_CATALOG_ENDPOINT.into()
+    }
 }
 
 fn validate_model_id(value: &str) -> Result<(), ProviderError> {
@@ -551,9 +793,44 @@ fn parse_additional_models(value: Option<&str>) -> Vec<String> {
         .collect()
 }
 
+fn parse_provider_routes(value: Option<&str>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    value
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert((*value).to_owned()))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn validate_routing_policy(policy: &VercelRoutingPolicy) -> Result<(), ProviderError> {
+    for provider in policy.only.iter().chain(&policy.order) {
+        let valid = !provider.is_empty()
+            && provider.len() <= 128
+            && provider
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+        if !valid {
+            return Err(ProviderError::Configuration(format!(
+                "Vercel Gateway provider route `{provider}` is invalid"
+            )));
+        }
+    }
+    Ok(())
+}
+
 struct ResolvedVercelAuth {
     access_token: Zeroizing<String>,
     team_id: Option<String>,
+    source: VercelCredentialSource,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum VercelCredentialSource {
+    ApiKey,
+    FxLogin,
 }
 
 #[derive(Deserialize)]
@@ -751,10 +1028,18 @@ fn read_bounded_response(
     response: &mut ureq::http::Response<ureq::Body>,
     label: &str,
 ) -> Result<Zeroizing<Vec<u8>>, ProviderError> {
+    read_bounded_response_with_limit(response, label, MAX_OAUTH_BODY_BYTES)
+}
+
+fn read_bounded_response_with_limit(
+    response: &mut ureq::http::Response<ureq::Body>,
+    label: &str,
+    limit: u64,
+) -> Result<Zeroizing<Vec<u8>>, ProviderError> {
     response
         .body_mut()
         .with_config()
-        .limit(MAX_OAUTH_BODY_BYTES)
+        .limit(limit)
         .read_to_vec()
         .map(Zeroizing::new)
         .map_err(|error| ProviderError::Authentication(format!("could not read {label}: {error}")))
@@ -956,11 +1241,13 @@ mod tests {
             issuer: "http://127.0.0.1:1234".into(),
             client_id: "client".into(),
             gateway_endpoint: "http://127.0.0.1:1234/v3/ai/language-model".into(),
+            catalog_endpoint: "http://127.0.0.1:1234/coding-agent/v1/models".into(),
             teams_endpoint: "http://127.0.0.1:1234/v2/teams".into(),
             team: None,
             open_browser: false,
             auth_timeout: Duration::from_secs(1),
             additional_models: Vec::new(),
+            routing: VercelRoutingPolicy::default(),
         }
     }
 
@@ -998,9 +1285,13 @@ mod tests {
     }
 
     fn respond_json(stream: &mut TcpStream, body: &str) {
+        respond(stream, 200, "OK", body);
+    }
+
+    fn respond(stream: &mut TcpStream, status: u16, reason: &str, body: &str) {
         write!(
             stream,
-            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
             body.len(),
             body
         )
@@ -1016,6 +1307,12 @@ mod tests {
                 .models()
                 .iter()
                 .any(|model| model.id == "openai/gpt-5.5")
+        );
+        assert!(
+            !provider
+                .models()
+                .iter()
+                .any(|model| model.id == "blackbox/zai/glm-5.2")
         );
         assert_eq!(provider.auth_methods()[0].id, "oauth");
     }
@@ -1042,6 +1339,87 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_catalog_uses_fx_login_team_query_and_metadata() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!(
+            "http://{}/coding-agent/v1/models",
+            listener.local_addr().unwrap()
+        );
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            respond_json(
+                &mut stream,
+                r#"{"data":[{"id":"zai/glm-5.2","name":"GLM 5.2","type":"language","context_window":1000000,"max_tokens":128000,"tags":["reasoning","tool-use"]},{"id":"image/model","type":"image"},{"id":42,"type":"language"}]}"#,
+            );
+            request
+        });
+
+        let mut config = test_config();
+        config.catalog_endpoint = endpoint;
+        let provider = VercelProvider::new(config).unwrap();
+        let mut attributes = BTreeMap::new();
+        attributes.insert(TEAM_ID_ATTRIBUTE.into(), "team one".into());
+        let store = MemoryStore(Mutex::new(Some(Credential::OAuth {
+            access_token: "catalog-secret".into(),
+            refresh_token: Some("refresh-secret".into()),
+            expires_at_ms: now_ms() + 3_600_000,
+            attributes,
+        })));
+
+        let models = provider.refresh_models(&store).unwrap().unwrap();
+        let model = models
+            .iter()
+            .find(|model| model.id == DEFAULT_MODEL)
+            .unwrap();
+        assert_eq!(model.name, "GLM 5.2");
+        assert_eq!(model.context_window, 1_000_000);
+        assert_eq!(model.max_output_tokens, 128_000);
+        assert!(model.reasoning);
+        assert_eq!(models.len(), 1);
+
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /coding-agent/v1/models?teamId=team+one "));
+        assert!(request.contains("authorization: Bearer catalog-secret"));
+    }
+
+    #[test]
+    fn rejected_authenticated_catalog_falls_back_to_public_catalog() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!(
+            "http://{}/coding-agent/v1/models",
+            listener.local_addr().unwrap()
+        );
+        let server = thread::spawn(move || {
+            let mut requests = Vec::new();
+            let (mut authenticated, _) = listener.accept().unwrap();
+            requests.push(read_http_request(&mut authenticated));
+            respond(&mut authenticated, 401, "Unauthorized", "{}");
+            let (mut public, _) = listener.accept().unwrap();
+            requests.push(read_http_request(&mut public));
+            respond_json(
+                &mut public,
+                r#"{"data":[{"id":"zai/glm-5.2","type":"language"}]}"#,
+            );
+            requests
+        });
+
+        let mut config = test_config();
+        config.catalog_endpoint = endpoint;
+        let provider = VercelProvider::new(config).unwrap();
+        let store = MemoryStore(Mutex::new(Some(Credential::ApiKey {
+            secret: "gateway-key".into(),
+            attributes: BTreeMap::new(),
+        })));
+        let models = provider.refresh_models(&store).unwrap().unwrap();
+        assert_eq!(models.len(), 1);
+
+        let requests = server.join().unwrap();
+        assert!(requests[0].contains("authorization: Bearer gateway-key"));
+        assert!(!requests[1].contains("authorization:"));
+    }
+
+    #[test]
     fn api_key_credential_constructs_a_nested_model_gateway() {
         let provider = VercelProvider::new(test_config()).unwrap();
         let store = MemoryStore(Mutex::new(Some(Credential::ApiKey {
@@ -1053,7 +1431,30 @@ mod tests {
                 .gateway(DEFAULT_MODEL, Some("session"), &store)
                 .is_ok()
         );
+        assert!(
+            provider
+                .gateway("blackbox/zai/glm-5.2", Some("session"), &store)
+                .is_err()
+        );
         assert!(provider.gateway("missing/model", None, &store).is_err());
+    }
+
+    #[test]
+    fn validates_generic_gateway_provider_routing() {
+        let mut config = test_config();
+        config.routing = VercelRoutingPolicy {
+            only: vec!["blackbox".into()],
+            order: vec!["blackbox".into(), "zai".into()],
+        };
+        assert!(VercelProvider::new(config).is_ok());
+
+        let mut invalid = test_config();
+        invalid.routing.only = vec!["blackbox/zai".into()];
+        assert!(matches!(
+            VercelProvider::new(invalid),
+            Err(ProviderError::Configuration(message))
+                if message.contains("provider route")
+        ));
     }
 
     #[test]

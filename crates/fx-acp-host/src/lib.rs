@@ -187,11 +187,20 @@ pub async fn run(options: Options) -> agent_client_protocol::Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: acp::AuthenticateRequest, responder, _connection| {
-                authenticate_state
+            async move |request: acp::AuthenticateRequest, responder, connection| {
+                let models_refreshed = authenticate_state
                     .authenticate(request.method_id.0.as_ref())
                     .await?;
-                responder.respond(acp::AuthenticateResponse::new())
+                responder.respond(acp::AuthenticateResponse::new())?;
+                if models_refreshed {
+                    if let Err(error) = authenticate_state
+                        .publish_session_config_updates(&connection)
+                        .await
+                    {
+                        eprintln!("fxrs model catalog update: {error}");
+                    }
+                }
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -203,7 +212,7 @@ pub async fn run(options: Options) -> agent_client_protocol::Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: acp::NewSessionRequest, responder, _connection| {
+            async move |request: acp::NewSessionRequest, responder, connection| {
                 let setup = new_state
                     .create_session(
                         request.cwd,
@@ -215,7 +224,9 @@ pub async fn run(options: Options) -> agent_client_protocol::Result<()> {
                     acp::NewSessionResponse::new(setup.session_id)
                         .modes(setup.modes)
                         .config_options(setup.config_options),
-                )
+                )?;
+                new_state.start_background_catalog_refresh(connection);
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -226,7 +237,9 @@ pub async fn run(options: Options) -> agent_client_protocol::Result<()> {
                     acp::LoadSessionResponse::new()
                         .modes(setup.modes)
                         .config_options(setup.config_options),
-                )
+                )?;
+                load_state.start_background_catalog_refresh(connection);
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -237,7 +250,9 @@ pub async fn run(options: Options) -> agent_client_protocol::Result<()> {
                     acp::ResumeSessionResponse::new()
                         .modes(setup.modes)
                         .config_options(setup.config_options),
-                )
+                )?;
+                resume_state.start_background_catalog_refresh(connection);
+                Ok(())
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -300,6 +315,7 @@ struct HostState {
     model_override: Option<String>,
     store: Option<Arc<EventLogSessionStore>>,
     initialized: AtomicBool,
+    catalog_refresh_started: AtomicBool,
     sessions: Mutex<HashMap<String, SessionSlot>>,
 }
 
@@ -359,6 +375,7 @@ impl HostState {
             model_override,
             store,
             initialized: AtomicBool::new(false),
+            catalog_refresh_started: AtomicBool::new(false),
             sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -376,16 +393,99 @@ impl HostState {
             .collect()
     }
 
-    async fn authenticate(&self, method_id: &str) -> agent_client_protocol::Result<()> {
+    async fn authenticate(&self, method_id: &str) -> agent_client_protocol::Result<bool> {
         let providers = self.providers.clone();
         let credentials = self.credentials.clone();
         let method_id = method_id.to_owned();
-        tokio::task::spawn_blocking(move || {
+        let outcome = tokio::task::spawn_blocking(move || {
             providers.authenticate(&method_id, credentials.as_ref())
         })
         .await
         .map_err(|error| internal(format!("authentication worker failed: {error}")))?
-        .map_err(|error| invalid_params(error.to_string()))
+        .map_err(|error| invalid_params(error.to_string()))?;
+        if let Some(warning) = outcome.catalog_warning {
+            eprintln!("fxrs model catalog refresh: {warning}");
+        }
+        Ok(outcome.models_refreshed)
+    }
+
+    fn start_background_catalog_refresh(
+        self: &Arc<Self>,
+        connection: ConnectionTo<agent_client_protocol::Client>,
+    ) {
+        if self
+            .catalog_refresh_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let state = self.clone();
+        tokio::spawn(async move {
+            let providers = state.providers.clone();
+            let credentials = state.credentials.clone();
+            let outcome =
+                tokio::task::spawn_blocking(move || providers.refresh_models(credentials.as_ref()))
+                    .await;
+            match outcome {
+                Ok(outcome) if outcome.models_refreshed => {
+                    if let Err(error) = state.publish_session_config_updates(&connection).await {
+                        eprintln!("fxrs model catalog update: {error}");
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => eprintln!("fxrs model catalog worker failed: {error}"),
+            }
+        });
+    }
+
+    async fn publish_session_config_updates(
+        &self,
+        connection: &ConnectionTo<agent_client_protocol::Client>,
+    ) -> agent_client_protocol::Result<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| internal("ACP session registry is poisoned"))?
+            .iter()
+            .map(|(id, slot)| (id.clone(), slot.clone()))
+            .collect::<Vec<_>>();
+        let models = self.providers.models();
+        let fallback_model = self
+            .providers
+            .default_model()
+            .map_err(|error| internal(error.to_string()))?
+            .route();
+        for (id, slot) in sessions {
+            let mut runtime = slot.runtime.lock().await;
+            let model = if self.providers.model(&runtime.model).is_ok() {
+                runtime.model.clone()
+            } else {
+                let mut persisted = runtime.session.clone();
+                persisted.preferences.model = Some(fallback_model.clone());
+                persisted.updated_at_ms = unix_timestamp_ms()?;
+                if let Some(store) = &self.store {
+                    store.save(&persisted).await.map_err(store_error)?;
+                }
+                runtime.session = persisted;
+                runtime.model = fallback_model.clone();
+                fallback_model.clone()
+            };
+            drop(runtime);
+            let mode = slot
+                .mode
+                .lock()
+                .map_err(|_| internal("ACP session mode is poisoned"))?
+                .id;
+            let update = acp::SessionUpdate::ConfigOptionUpdate(acp::ConfigOptionUpdate::new(
+                session_config_options(&model, mode, &models),
+            ));
+            connection.send_notification(acp::SessionNotification::new(
+                acp::SessionId::new(id),
+                update,
+            ))?;
+        }
+        Ok(())
     }
 
     async fn logout(&self) -> agent_client_protocol::Result<()> {
@@ -2199,6 +2299,12 @@ mod tests {
         assert_eq!(options[1].id.0.as_ref(), "mode");
         assert_eq!(models.len(), 34);
         assert!(state.providers.model("vercel/zai/glm-5.2").is_ok());
+        assert!(
+            state
+                .providers
+                .model("vercel/blackbox/zai/glm-5.2")
+                .is_err()
+        );
         assert!(state.providers.model("unknown/model").is_err());
     }
 

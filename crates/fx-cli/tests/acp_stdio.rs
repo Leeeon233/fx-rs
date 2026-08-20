@@ -83,6 +83,88 @@ impl Drop for TestDirectory {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn saved_vercel_login_refreshes_model_options_after_session_start() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let catalog = std::thread::spawn(move || -> Result<String, String> {
+        let (mut stream, _) = listener.accept().map_err(|error| error.to_string())?;
+        let request = read_http_headers(&mut stream)?;
+        let body = r#"{"data":[{"id":"zai/glm-5.2","name":"GLM 5.2","type":"language","context_window":1000000,"max_tokens":128000,"tags":["reasoning"]},{"id":"private/team-model","name":"Team Model","type":"language","context_window":200000,"max_tokens":16000,"tags":["tool-use"]}]}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(request)
+    });
+
+    let home = TestDirectory::home("vercel-catalog-home");
+    let mut attributes = BTreeMap::new();
+    attributes.insert("team_id".into(), "team_1".into());
+    let expires_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+        + 3_600_000;
+    FileCredentialStore::new(home.path().join(".fx/credentials"))
+        .lock("vercel")
+        .unwrap()
+        .replace(Credential::OAuth {
+            access_token: "vercel-access".into(),
+            refresh_token: Some("vercel-refresh".into()),
+            expires_at_ms,
+            attributes,
+        })
+        .unwrap();
+    let workspace = TestDirectory::new("vercel-catalog-workspace");
+    let workspace_path = workspace.path().to_path_buf();
+    let received_team_model = Arc::new(Mutex::new(false));
+    let notification_flag = received_team_model.clone();
+    let assertion_flag = received_team_model.clone();
+    let agent = AcpAgent::new(
+        AcpAgentConfig::new(env!("CARGO_BIN_EXE_fx-acp"))
+            .env("HOME", home.path().display().to_string())
+            .env("FX_GATEWAY_BASE_URL", format!("http://{address}")),
+    );
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _connection| {
+                if format!("{:?}", notification.update).contains("vercel/private/team-model") {
+                    *notification_flag.lock().unwrap() = true;
+                }
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, move |connection: ConnectionTo<Agent>| async move {
+            connection
+                .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                .block_task()
+                .await?;
+            connection
+                .send_request(NewSessionRequest::new(workspace_path))
+                .block_task()
+                .await?;
+            for _ in 0..100 {
+                if *assertion_flag.lock().unwrap() {
+                    return Ok(());
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            panic!("ACP client did not receive the refreshed Vercel model catalog");
+        })
+        .await
+        .expect("Vercel catalog ACP exchange failed");
+
+    let request = catalog.join().unwrap().unwrap().to_ascii_lowercase();
+    assert!(request.starts_with("get /coding-agent/v1/models?teamid=team_1 "));
+    assert!(request.contains("authorization: bearer vercel-access"));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn acp_reuses_ambient_codex_oauth_at_first_prompt() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -1468,6 +1550,22 @@ fn extract_subagent_child_id(body: &str) -> Option<String> {
 
 fn read_http_request(stream: &mut TcpStream) -> Result<String, String> {
     read_http_request_with_headers(stream).map(|(_, body)| body)
+}
+
+fn read_http_headers(stream: &mut TcpStream) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    loop {
+        let mut chunk = [0u8; 4096];
+        let count = stream.read(&mut chunk).map_err(|error| error.to_string())?;
+        if count == 0 {
+            return Err("request ended before headers".into());
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+        if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            return String::from_utf8(bytes[..position + 4].to_vec())
+                .map_err(|error| error.to_string());
+        }
+    }
 }
 
 fn read_http_request_with_headers(stream: &mut TcpStream) -> Result<(String, String), String> {
