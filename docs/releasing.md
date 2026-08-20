@@ -34,7 +34,9 @@ does not support Windows yet.
 5. Publish the crate set in dependency order. Either run
    `scripts/publish-crates.sh --execute` after `cargo login`, or manually run
    the `Publish crates.io` GitHub workflow with a repository secret named
-   `CARGO_REGISTRY_TOKEN`.
+   `CARGO_REGISTRY_TOKEN`. Afterwards, run
+   `scripts/publish-crates.sh --status`; it exits successfully only when every
+   package at the workspace version is visible in Cargo's sparse index.
 6. Confirm `cargo install fxrs --version 0.0.4 --locked` works from a clean
    Cargo home.
 7. Create and push an annotated tag matching the Cargo version:

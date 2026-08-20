@@ -31,12 +31,47 @@ if [[ -z "$fxrs_version" ]]; then
     exit 1
 fi
 
+fxrs_index_path() {
+    local fxrs_package=$1
+    case ${#fxrs_package} in
+        1) printf '1/%s' "$fxrs_package" ;;
+        2) printf '2/%s' "$fxrs_package" ;;
+        3) printf '3/%s/%s' "${fxrs_package:0:1}" "$fxrs_package" ;;
+        *) printf '%s/%s/%s' "${fxrs_package:0:2}" "${fxrs_package:2:2}" "$fxrs_package" ;;
+    esac
+}
+
+# Returns 0 when the version exists, 1 when it is absent, and 2 when the
+# registry index could not be queried. Keeping lookup failures distinct avoids
+# attempting an irreversible duplicate publish during a crates.io outage.
 fxrs_version_exists() {
     local fxrs_package=$1
-    curl --location --silent --fail \
+    local fxrs_index_response
+    local fxrs_http_code
+    local fxrs_index_body
+    local fxrs_index_url="https://index.crates.io/$(fxrs_index_path "$fxrs_package")"
+
+    if ! fxrs_index_response=$(curl --location --silent --show-error \
         --user-agent "$fxrs_user_agent" \
-        --output /dev/null \
-        "https://crates.io/api/v1/crates/$fxrs_package/$fxrs_version"
+        --header 'Cache-Control: no-cache' \
+        --write-out $'\n%{http_code}' \
+        "$fxrs_index_url"); then
+        return 2
+    fi
+    fxrs_http_code=${fxrs_index_response##*$'\n'}
+    fxrs_index_body=${fxrs_index_response%$'\n'*}
+    case "$fxrs_http_code" in
+        200)
+            grep --fixed-strings --quiet \
+                "\"name\":\"$fxrs_package\",\"vers\":\"$fxrs_version\"" \
+                <<<"$fxrs_index_body"
+            ;;
+        404) return 1 ;;
+        *)
+            echo "publish-crates: sparse index returned HTTP $fxrs_http_code for $fxrs_package" >&2
+            return 2
+            ;;
+    esac
 }
 
 case "$fxrs_mode" in
@@ -54,6 +89,22 @@ case "$fxrs_mode" in
             grep --quiet --line-regexp 'README.md' <<<"$fxrs_package_files"
         done
         ;;
+    --status)
+        fxrs_missing=0
+        for fxrs_package in "${fxrs_packages[@]}"; do
+            if fxrs_version_exists "$fxrs_package"; then
+                echo "published  $fxrs_package $fxrs_version"
+            else
+                fxrs_lookup_status=$?
+                if ((fxrs_lookup_status == 2)); then
+                    exit 1
+                fi
+                echo "missing    $fxrs_package $fxrs_version"
+                fxrs_missing=1
+            fi
+        done
+        exit "$fxrs_missing"
+        ;;
     --execute)
         if [[ -n "$(git status --porcelain)" ]]; then
             echo "publish-crates: refusing to publish from a dirty worktree" >&2
@@ -64,13 +115,18 @@ case "$fxrs_mode" in
             if fxrs_version_exists "$fxrs_package"; then
                 echo "==> $fxrs_package $fxrs_version is already published"
                 continue
+            else
+                fxrs_lookup_status=$?
+                if ((fxrs_lookup_status == 2)); then
+                    exit 1
+                fi
             fi
 
             echo "==> publishing $fxrs_package $fxrs_version"
             cargo publish --package "$fxrs_package" --locked
 
             fxrs_attempt=0
-            until fxrs_version_exists "$fxrs_package"; do
+            while ! fxrs_version_exists "$fxrs_package"; do
                 fxrs_attempt=$((fxrs_attempt + 1))
                 if ((fxrs_attempt >= 30)); then
                     echo "publish-crates: $fxrs_package $fxrs_version did not become visible within five minutes" >&2
@@ -81,7 +137,7 @@ case "$fxrs_mode" in
         done
         ;;
     *)
-        echo "usage: scripts/publish-crates.sh [--check|--execute]" >&2
+        echo "usage: scripts/publish-crates.sh [--check|--status|--execute]" >&2
         exit 2
         ;;
 esac
