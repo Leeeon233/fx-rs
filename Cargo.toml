@@ -19,7 +19,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -34,20 +34,20 @@ base64 = "0.23.0"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 fs4 = "1.1.0"
 futures-util = "0.3.31"
-fx-auth = { package = "fxrs-auth", version = "0.0.6", path = "crates/fx-auth" }
-fx-config = { package = "fxrs-config", version = "0.0.6", path = "crates/fx-config" }
-fx-context = { package = "fxrs-context", version = "0.0.6", path = "crates/fx-context" }
-fx-core = { package = "fxrs-core", version = "0.0.6", path = "crates/fx-core" }
-fx-mcp = { package = "fxrs-mcp", version = "0.0.6", path = "crates/fx-mcp" }
-fx-process = { package = "fxrs-process", version = "0.0.6", path = "crates/fx-process" }
-fx-provider = { package = "fxrs-provider", version = "0.0.6", path = "crates/fx-provider" }
-fx-runtime = { package = "fxrs-runtime", version = "0.0.6", path = "crates/fx-runtime" }
-fx-store = { package = "fxrs-store", version = "0.0.6", path = "crates/fx-store" }
-fx-subagent = { package = "fxrs-subagent", version = "0.0.6", path = "crates/fx-subagent" }
-fx-terminal-host = { package = "fxrs-terminal-host", version = "0.0.6", path = "crates/fx-terminal-host" }
-fx-tools = { package = "fxrs-tools", version = "0.0.6", path = "crates/fx-tools" }
-fx-tui = { package = "fxrs-tui", version = "0.0.6", path = "crates/fx-tui" }
-fx-workspace = { package = "fxrs-workspace", version = "0.0.6", path = "crates/fx-workspace" }
+fx-auth = { package = "fxrs-auth", version = "0.0.7", path = "crates/fx-auth" }
+fx-config = { package = "fxrs-config", version = "0.0.7", path = "crates/fx-config" }
+fx-context = { package = "fxrs-context", version = "0.0.7", path = "crates/fx-context" }
+fx-core = { package = "fxrs-core", version = "0.0.7", path = "crates/fx-core" }
+fx-mcp = { package = "fxrs-mcp", version = "0.0.7", path = "crates/fx-mcp" }
+fx-process = { package = "fxrs-process", version = "0.0.7", path = "crates/fx-process" }
+fx-provider = { package = "fxrs-provider", version = "0.0.7", path = "crates/fx-provider" }
+fx-runtime = { package = "fxrs-runtime", version = "0.0.7", path = "crates/fx-runtime" }
+fx-store = { package = "fxrs-store", version = "0.0.7", path = "crates/fx-store" }
+fx-subagent = { package = "fxrs-subagent", version = "0.0.7", path = "crates/fx-subagent" }
+fx-terminal-host = { package = "fxrs-terminal-host", version = "0.0.7", path = "crates/fx-terminal-host" }
+fx-tools = { package = "fxrs-tools", version = "0.0.7", path = "crates/fx-tools" }
+fx-tui = { package = "fxrs-tui", version = "0.0.7", path = "crates/fx-tui" }
+fx-workspace = { package = "fxrs-workspace", version = "0.0.7", path = "crates/fx-workspace" }
 hex = "0.4.3"
 html2text = { version = "0.17.1", default-features = false }
 http = "1.5.0"
